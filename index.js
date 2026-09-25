@@ -2,21 +2,38 @@ const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder
 const noblox = require('noblox.js');
 const axios = require('axios');
 
+// نظام حماية البوت ومنعه من التوقف النهائي (Auto-recovery on errors)
+process.on('uncaughtException', (err) => {
+    console.error('⚠️ Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
-const DISCORD_BOT_TOKEN = 'TOKEN_BOT_DYAL_DISCORD_HENA'; // توكن بوت الديسكورد
-const COOKIE = 'PUT_YOUR_ROBLOSECURITY_COOKIE_HERE'; // الكوكي الطويلة اللي نسختها
+// قراءة التوكن والكوكي من متغيرات النظام (Environment Variables) في Railway
+const DISCORD_BOT_TOKEN = process.env.DISCORD_TOKEN;
+const COOKIE = process.env.ROBLOX_COOKIE;
 
-const TARGET_USERNAME = 'اسم_حسابك_الرئيسي_بروبلوكس'; // يوزر حسابك الأساسي
+const TARGET_USERNAME = 'mfrr07786'; // يوزر حسابك الأساسي المراد مراقبته
 let targetUserId = null;
 
 client.once('ready', async () => {
     try {
+        if (!COOKIE) {
+            console.error('❌ Error: ROBLOX_COOKIE is missing in Environment Variables!');
+            return;
+        }
+
+        // تسجيل الدخول بحساب البوت الوهمي في روبلوكس عبر الكوكي
         await noblox.setCookie(COOKIE);
         console.log(`[ROBLOX] Logged in successfully as alt account!`);
 
+        // جلب الآيدي (User ID) لحسابك الأساسي
         targetUserId = await noblox.getIdFromUsername(TARGET_USERNAME);
         console.log(`[DISCORD] Bot is online and tracking user: ${TARGET_USERNAME} (ID:${targetUserId})`);
     } catch (err) {
@@ -120,4 +137,8 @@ function getStatusDetails(type) {
     }
 }
 
-client.login(DISCORD_BOT_TOKEN);
+if (!DISCORD_BOT_TOKEN) {
+    console.error('❌ Error: DISCORD_TOKEN is missing in Environment Variables!');
+} else {
+    client.login(DISCORD_BOT_TOKEN);
+}
