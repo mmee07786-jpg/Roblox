@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const noblox = require('noblox.js');
 const axios = require('axios');
 
@@ -22,6 +22,13 @@ const COOKIE = process.env.ROBLOX_COOKIE;
 const TARGET_USERNAME = 'mfrr07786'; // يوزر حسابك الأساسي المراد مراقبته
 let targetUserId = null;
 
+// تعريف أمر الـ Slash Command بنظام /
+const commands = [
+    new SlashCommandBuilder()
+        .setName('join')
+        .setDescription('معرفة إذا كان صديقك يلعب حالياً ورابط الانخراط بالماب مع السكن!')
+].map(command => command.toJSON());
+
 client.once('ready', async () => {
     try {
         if (!COOKIE) {
@@ -35,9 +42,20 @@ client.once('ready', async () => {
 
         // جلب الآيدي (User ID) لحسابك الأساسي
         targetUserId = await noblox.getIdFromUsername(TARGET_USERNAME);
-        console.log(`[DISCORD] Bot is online and tracking user: ${TARGET_USERNAME} (ID:${targetUserId})`);
+        console.log(`[ROBLOX] Tracking user: ${TARGET_USERNAME} (ID:${targetUserId})`);
+
+        // تسجيل الأوامر (Slash Commands) تلقائياً للبوت في الديسكورد
+        const rest = new REST({ version: '10' }).setToken(DISCORD_BOT_TOKEN);
+        
+        console.log('Started refreshing application (/) commands.');
+        await rest.put(
+            Routes.applicationCommands(client.user.id),
+            { body: commands },
+        );
+        console.log(`[DISCORD] Successfully reloaded application (/) commands. Bot is fully online as ${client.user.tag}`);
+
     } catch (err) {
-        console.error('Failed to login to Roblox with cookie:', err);
+        console.error('Error during startup:', err);
     }
 });
 
@@ -63,10 +81,7 @@ client.on('interactionCreate', async interaction => {
 
             const presenceData = userPresence.data.presence[0];
             const presenceType = presenceData.userPresenceType; 
-            // 0: Offline (غير متصل)
-            // 1: Online (متصل / صافن بالقائمة الرئيسية)
-            // 2: In Game (داخل ماب)
-            // 3: In Studio (في الاستوديو)
+            // 0: Offline, 1: Online, 2: In Game, 3: In Studio
 
             // إذا اللاعب مو داخل لعبة (يعني صافن أو غير متصل)
             if (presenceType !== 2) {
@@ -123,7 +138,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// دالة لتحديد نص الحالة واللون المناسب إذا لم يكن في اللعبة
+// دالة لتحديد نص الحالة واللون المناسب
 function getStatusDetails(type) {
     switch (type) {
         case 0: 
