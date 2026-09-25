@@ -2,57 +2,48 @@ const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder
 const noblox = require('noblox.js');
 const axios = require('axios');
 
-// نظام حماية البوت ومنعه من التوقف النهائي (Auto-recovery on errors)
-process.on('uncaughtException', (err) => {
-    console.error('⚠️ Uncaught Exception:', err);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
-});
+process.on('uncaughtException', (err) => { console.error('⚠️ Uncaught Exception:', err); });
+process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ Unhandled Rejection:', reason); });
 
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 
-// قراءة التوكن والكوكي من متغيرات النظام (Environment Variables) في Railway
 const DISCORD_BOT_TOKEN = process.env.DISCORD_TOKEN;
 const COOKIE = process.env.ROBLOX_COOKIE;
-
-const TARGET_USERNAME = 'mfrr07786'; // يوزر حسابك الأساسي المراد مراقبته
+const TARGET_USERNAME = 'mfrr07786'; 
 let targetUserId = null;
 
-// تعريف أمر الـ Slash Command بنظام /
 const commands = [
     new SlashCommandBuilder()
         .setName('join')
-        .setDescription('معرفة إذا كان صديقك يلعب حالياً ورابط الانخراط بالماب مع السكن!')
+        .setDescription('معرفة حالة صديقك ورابط الانخراط بالماب مع السكن!')
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
     try {
         if (!COOKIE) {
-            console.error('❌ Error: ROBLOX_COOKIE is missing in Environment Variables!');
+            console.error('❌ Error: ROBLOX_COOKIE is missing!');
             return;
         }
 
-        // تسجيل الدخول بحساب البوت الوهمي في روبلوكس عبر الكوكي
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully as alt account!`);
+        console.log(`[ROBLOX] Logged in successfully!`);
 
-        // جلب الآيدي (User ID) لحسابك الأساسي
         targetUserId = await noblox.getIdFromUsername(TARGET_USERNAME);
-        console.log(`[ROBLOX] Tracking user: ${TARGET_USERNAME} (ID:${targetUserId})`);
+        console.log(`[ROBLOX] Tracking user ID: ${targetUserId}`);
 
-        // تسجيل الأوامر (Slash Commands) تلقائياً للبوت في الديسكورد
         const rest = new REST({ version: '10' }).setToken(DISCORD_BOT_TOKEN);
         
-        console.log('Started refreshing application (/) commands.');
-        await rest.put(
-            Routes.applicationCommands(client.user.id),
-            { body: commands },
-        );
-        console.log(`[DISCORD] Successfully reloaded application (/) commands. Bot is fully online as ${client.user.tag}`);
+        // جلب أول سيرفر للبوت وتسجيل الأمر فيه حصرياً حتى يظهر فوراً
+        const guilds = await client.guilds.fetch();
+        for (const [guildId] of guilds) {
+            await rest.put(
+                Routes.applicationGuildCommands(client.user.id, guildId),
+                { body: commands },
+            );
+            console.log(`[DISCORD] Slash commands registered instantly for guild: ${guildId}`);
+        }
 
     } catch (err) {
         console.error('Error during startup:', err);
@@ -70,20 +61,16 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply('❌ لم يتم العثور على اللاعب الأساسي أو أن البوت لم يسجل دخول بعد.');
             }
 
-            // جلب صورة السكن (Avatar Headshot) دائماً لعرضها بالـ Embed
             const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
             const avatarUrl = thumbResponse.data.data[0]?.imageUrl || '';
 
-            // فحص حالة اللاعب من بريزنس روبلوكس
             const userPresence = await axios.post(`https://presence.roblox.com/v1/presence/users`, {
                 userIds: [targetUserId]
             });
 
             const presenceData = userPresence.data.presence[0];
             const presenceType = presenceData.userPresenceType; 
-            // 0: Offline, 1: Online, 2: In Game, 3: In Studio
 
-            // إذا اللاعب مو داخل لعبة (يعني صافن أو غير متصل)
             if (presenceType !== 2) {
                 const statusInfo = getStatusDetails(presenceType);
                 
@@ -101,7 +88,6 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply({ embeds: [embedOffline] });
             }
 
-            // إذا كان داخل لعبة، نجيب بيانات السيرفر والماب
             const gameId = presenceData.gameId; 
             const placeId = presenceData.placeId; 
             const universeId = presenceData.universeId;
@@ -138,22 +124,17 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// دالة لتحديد نص الحالة واللون المناسب
 function getStatusDetails(type) {
     switch (type) {
-        case 0: 
-            return { text: '🔴 غير متصل (Offline)', color: 0xFF0000 };
-        case 1: 
-            return { text: '🟡 متصل / صافن بالقائمة الرئيسية (Online)', color: 0xFFA500 };
-        case 3: 
-            return { text: '🔵 داخل استوديو روبلوكس (Studio)', color: 0x0000FF };
-        default: 
-            return { text: '⚪ غير معروف (Unknown)', color: 0x808080 };
+        case 0: return { text: '🔴 غير متصل (Offline)', color: 0xFF0000 };
+        case 1: return { text: '🟡 متصل / صافن بالقائمة الرئيسية (Online)', color: 0xFFA500 };
+        case 3: return { text: '🔵 داخل استوديو روبلوكس (Studio)', color: 0x0000FF };
+        default: return { text: '⚪ غير معروف (Unknown)', color: 0x808080 };
     }
 }
 
 if (!DISCORD_BOT_TOKEN) {
-    console.error('❌ Error: DISCORD_TOKEN is missing in Environment Variables!');
+    console.error('❌ Error: DISCORD_TOKEN is missing!');
 } else {
     client.login(DISCORD_BOT_TOKEN);
 }
