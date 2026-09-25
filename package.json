@@ -1,14 +1,16 @@
 {
   "name": "roblox-discord-bot",
   "version": "1.0.0",
-  "description": "Roblox JobID and Status Bot for Discord",
   "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "dependencies": {
     "discord.js": "^14.14.1",
     "noblox.js": "^4.8.0",
     "axios": "^1.6.8"
-  },
-  "engines": {
-    "node": "18.x"
   }
 }
