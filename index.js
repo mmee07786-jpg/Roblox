@@ -21,7 +21,6 @@ client.once('ready', async () => {
             console.error('❌ Error: ROBLOX_COOKIE is missing in Environment Variables!');
             return;
         }
-
         await noblox.setCookie(COOKIE);
         console.log(`[ROBLOX] Logged in successfully as bot account!`);
         console.log(`[DISCORD] Bot is ready and listening to messages as ${client.user.tag}`);
@@ -37,115 +36,153 @@ client.on('messageCreate', async message => {
     const command = args[0].toLowerCase();
 
     if (command === '!roblox') {
+        // الصيغة: !roblox اليوزر اسم_الماب (مثال: !roblox DOOD_07786 TSB)
         const targetUsername = args[1];
+        const mapQuery = args.slice(2).join(' ');
 
-        if (!targetUsername) {
-            return message.reply('❌ يرجى كتابة اليوزر بعد الأمر مباشرة!\nمثال: `!roblox اسم_الحساب`');
+        if (!targetUsername || !mapQuery) {
+            return message.reply('❌ يرجى كتابة الأمر بالشكل الصحيح:\nمثال: `!roblox DOOD_07786 TSB`');
         }
 
-        const sentMessage = await message.reply(`🔍 جاري البحث عن الحساب **${targetUsername}**...`);
+        const sentMessage = await message.reply(`🔍 جاري البحث عن الماب **"${mapQuery}"** ومعلومات اللاعب **${targetUsername}**...`);
 
         try {
-            // البحث المباشر بروبلوكس عبر اليوزر الأساسي
+            // 1. جلب الـ User ID للاعب
             let targetUserId;
             try {
                 targetUserId = await noblox.getIdFromUsername(targetUsername);
             } catch (e) {
-                return sentMessage.edit(`❌ عذراً، لم يتم العثور على اللاعب **${targetUsername}**، تأكد من كتابة يوزر الحساب الصحيح بدقة!`);
+                return sentMessage.edit(`❌ عذراً، لم يتم العثور على اللاعب **${targetUsername}**!`);
             }
 
-            // جلب معلومات الحساب كاملة
-            let userInfo;
+            // 2. البحث عن الماب بالاسم (Keyword Search)
+            let gameData = null;
             try {
-                userInfo = await noblox.getPlayerInfo(targetUserId);
-            } catch (e) {
-                userInfo = { username: targetUsername, displayName: targetUsername };
+                const searchRes = await axios.get(`https://games.roblox.com/v1/games/list?keyword=${encodeURIComponent(mapQuery)}&maxRows=1`);
+                const games = searchRes.data.data || [];
+                if (games.length > 0) {
+                    gameData = games[0];
+                }
+            } catch (err) {
+                console.error('Error searching game:', err);
             }
 
-            const username = userInfo.username || targetUsername;
-            const displayName = userInfo.displayName || username;
+            if (!gameData) {
+                return sentMessage.edit(`❌ لم يتم العثور على أي ماب بهذا الاسم: **"${mapQuery}"**`);
+            }
 
-            // جلب صورة السكن
+            const universeId = gameData.id;
+            const placeId = gameData.rootPlaceId;
+            const gameName = gameData.name;
+            const playerCount = gameData.playing || 0;
+            const visits = gameData.visits || 0;
+            const votesUp = gameData.upVotes || 0;
+            const votesDown = gameData.downVotes || 0;
+            
+            // حساب نسبة الإعجاب بالمئة
+            const totalVotes = votesUp + votesDown;
+            const rating = totalVotes > 0 ? Math.round((votesUp / totalVotes) * 100) : 0;
+
+            // 3. جلب صورة أيقونة الماب وصورة البانر
+            let mapThumbnail = '';
+            try {
+                const thumbRes = await axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeId}&size=512x512&format=Png&isCircular=false`);
+                mapThumbnail = thumbRes.data.data[0]?.imageUrl || '';
+            } catch (e) {}
+
+            await sentMessage.edit(`🗺️ تم العثور على الماب: **${gameName}**\n👥 اللاعبون الآن: **${playerCount}** | 👍 الإعجابات: **${rating}%**\n🔍 جاري بدء فحص السيرفرات للبحث عن **${targetUsername}**...`);
+
+            // 4. البحث العميق في سيرفرات الماب
+            let scannedServersCount = 0;
+            let foundServer = null;
+            let cursor = '';
+            let attempts = 0;
+            const maxAttempts = 8; // فحص حتى 800 سيرفر
+
+            while (attempts < maxAttempts) {
+                attempts++;
+                try {
+                    const serversUrl = `https://games.roblox.com/v1/games/${placeId}/servers/Public?sortOrder=Asc&limit=100${cursor ? `&cursor=${cursor}` : ''}`;
+                    const serversRes = await axios.get(serversUrl);
+                    const servers = serversRes.data.data || [];
+
+                    if (servers.length === 0) break;
+
+                    for (const server of servers) {
+                        scannedServersCount++;
+                        if (server.playerIds && server.playerIds.includes(targetUserId)) {
+                            foundServer = server;
+                            break;
+                        }
+                    }
+
+                    if (foundServer) break;
+                    cursor = serversRes.data.nextPageCursor;
+                    if (!cursor) break;
+
+                } catch (err) {
+                    break;
+                }
+            }
+
+            // 5. جلب صورة سكن اللاعب
             let avatarUrl = '';
             try {
                 const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
                 avatarUrl = thumbResponse.data.data[0]?.imageUrl || '';
-            } catch (err) {
-                console.log('Error fetching avatar');
-            }
+            } catch (err) {}
 
-            // فحص الحالة (Presence)
-            let presenceData = { userPresenceType: 0 };
-            try {
-                const userPresence = await axios.post(`https://presence.roblox.com/v1/presence/users`, {
-                    userIds: [targetUserId]
-                });
-                presenceData = userPresence.data.presence[0] || presenceData;
-            } catch (err) {
-                console.log('Error fetching presence');
-            }
+            const userInfo = await noblox.getPlayerInfo(targetUserId).catch(() => ({ username: targetUsername, displayName: targetUsername }));
+            const username = userInfo.username || targetUsername;
+            const displayName = userInfo.displayName || username;
 
-            const presenceType = presenceData.userPresenceType; 
-            // 2 تعني داخل اللعبة
-
-            // إذا اللاعب غير متصل / مو داخل ماب
-            if (presenceType !== 2) {
-                const embedOffline = new EmbedBuilder()
-                    .setColor(0xFF0000)
-                    .setTitle(`🎮 معلومات الحساب: ${displayName}`)
-                    .setThumbnail(avatarUrl)
+            // بناء الإمبد والنتيجة النهائية
+            if (foundServer) {
+                const embed = new EmbedBuilder()
+                    .setColor(0x00FF00)
+                    .setTitle(`🎮 تم العثور على اللاعب في الماب!`)
+                    .setThumbnail(mapThumbnail)
+                    .setImage(avatarUrl)
                     .addFields(
-                        { name: '👤 اليوزر الأساسي', value: `\`${username}\``, inline: true },
-                        { name: '🏷️ اسم العرض', value: `\`${displayName}\``, inline: true },
-                        { name: '📍 الحالة', value: 'غير متصل ❌', inline: false }
+                        { name: '👤 اللاعب', value: `\`${displayName}\` (@${username})`, inline: false },
+                        { name: '🗺️ اسم الماب', value: `**${gameName}**`, inline: false },
+                        { name: '📊 إحصائيات الماب', value: `🟢 المتواجدون: \`${playerCount}\`\n👍 نسبة الإعجاب: \`${rating}%\` (\`${votesUp}\` إعجاب)\n👁️ الزيارات: \`${visits.toLocaleString()}\``, inline: false },
+                        { name: '🔍 السيرفرات المفحوصة', value: `\`${scannedServersCount} سيرفر\``, inline: true },
+                        { name: '📍 الحالة', value: 'متصل داخل سيرفر ✅', inline: true }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Roblox Status Bot' });
+                    .setFooter({ text: 'Roblox Smart Map & Player Scanner' });
 
-                return sentMessage.edit({ content: '', embeds: [embedOffline] });
+                const row = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setLabel('Join Game')
+                            .setStyle(ButtonStyle.Link)
+                            .setURL(`roblox://placeId=${placeId}&linkCode=${foundServer.id}`)
+                    );
+
+                await sentMessage.edit({ content: '', embeds: [embed], components: [row] });
+            } else {
+                const embedNotFound = new EmbedBuilder()
+                    .setColor(0xFF0000)
+                    .setTitle(`🎮 معلومات الماب واللاعب`)
+                    .setThumbnail(mapThumbnail)
+                    .addFields(
+                        { name: '👤 اللاعب', value: `\`${displayName}\` (@${username})`, inline: false },
+                        { name: '🗺️ اسم الماب', value: `**${gameName}**`, inline: false },
+                        { name: '📊 إحصائيات الماب', value: `🟢 المتواجدون: \`${playerCount}\`\n👍 نسبة الإعجاب: \`${rating}%\``, inline: false },
+                        { name: '🔍 السيرفرات المفحوصة', value: `\`${scannedServersCount} سيرفر\``, inline: true },
+                        { name: '📍 الحالة', value: 'لم يتم العثور عليه في سيرفرات هذا الماب ❌', inline: true }
+                    )
+                    .setTimestamp()
+                    .setFooter({ text: 'Roblox Smart Map & Player Scanner' });
+
+                await sentMessage.edit({ content: '', embeds: [embedNotFound], components: [] });
             }
-
-            // إذا اللاعب متصل وداخل الماب
-            const gameId = presenceData.gameId; 
-            const placeId = presenceData.placeId; 
-            const universeId = presenceData.universeId;
-
-            let gameName = 'Unknown Game';
-            try {
-                const gameDetails = await axios.get(`https://games.roblox.com/v1/games?universeIds=${universeId}`);
-                gameName = gameDetails.data.data[0]?.name || 'Unknown Game';
-            } catch (err) {
-                console.log('Error fetching game name');
-            }
-
-            const embed = new EmbedBuilder()
-                .setColor(0x00FF00)
-                .setTitle(`🎮 معلومات الحساب: ${displayName}`)
-                .setThumbnail(avatarUrl)
-                .addFields(
-                    { name: '👤 اليوزر الأساسي', value: `\`${username}\``, inline: true },
-                    { name: '🏷️ اسم العرض', value: `\`${displayName}\``, inline: true },
-                    { name: '📍 الحالة', value: 'متصل ✅', inline: false },
-                    { name: '🗺️ الماب الحالي', value: `\`${gameName}\``, inline: false },
-                    { name: '🆔 Job ID', value: `\`${gameId}\``, inline: false }
-                )
-                .setTimestamp()
-                .setFooter({ text: 'Roblox Status Bot' });
-
-            // زر الـ Join المباشر لسيرفر الشخص نفسه
-            const row = new ActionRowBuilder()
-                .addComponents(
-                    new ButtonBuilder()
-                        .setLabel('Join Game')
-                        .setStyle(ButtonStyle.Link)
-                        .setURL(`roblox://placeId=${placeId}&linkCode=${gameId}`)
-                );
-
-            await sentMessage.edit({ content: '', embeds: [embed], components: [row] });
 
         } catch (error) {
             console.error('Main Error:', error);
-            await sentMessage.edit('❌ حدث خطأ غير متوقع، تأكد من صحة الـ Cookie وتفعيل الصلاحيات.');
+            await sentMessage.edit('❌ حدث خطأ أثناء البحث عن الماب أو اللاعب.');
         }
     }
 });
