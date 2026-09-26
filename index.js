@@ -15,10 +15,10 @@ const client = new Client({
 
 const COOKIE = process.env.ROBLOX_COOKIE;
 
-// قاعدة بيانات داخلية للمابس لضمان السرعة المطلقة وتجنب حظر الـ API
+// جدول احتياطي للمابس الأساسية لضمان السرعة المطلقة
 const KNOWN_MAPS = {
     "tsb": { name: "The Strongest Battlegrounds", placeId: 10449761463, universeId: 3582763374 },
-    "blitz": { name: "战场 Battlegrounds Blitz", placeId: 13864661000, universeId: 4851213051 }
+    "the strongest battlegrounds": { name: "The Strongest Battlegrounds", placeId: 10449761463, universeId: 3582763374 }
 };
 
 client.once('ready', async () => {
@@ -28,7 +28,7 @@ client.once('ready', async () => {
             return;
         }
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully! (Unstoppable Mode Active)`);
+        console.log(`[ROBLOX] Logged in successfully! (Pro Hunter Mode Active)`);
         console.log(`[DISCORD] Bot is ready as ${client.user.tag}`);
     } catch (err) {
         console.error('Error during startup:', err);
@@ -43,13 +43,14 @@ client.on('messageCreate', async message => {
 
     if (command === '!roblox') {
         const targetUsername = args[1];
-        const mapQuery = args.slice(2).join(' ').toLowerCase().trim();
+        const mapQuery = args.slice(2).join(' ').trim();
+        const lowerQuery = mapQuery.toLowerCase();
 
         if (!targetUsername || !mapQuery) {
-            return message.reply('❌ الاستخدام الصحيح:\n`!roblox اليوزر اسم_الماب`\nمثال: `!roblox DOOD_07786 tsb`');
+            return message.reply('❌ الاستخدام الصحيح:\n`!roblox اليوزر اسم_الماب`\nمثال: `!roblox DOOD_07786 TSB`');
         }
 
-        const sentMessage = await message.reply(`🔥 **[وضع النصر الإجباري]** جاري تتبع الهدف **${targetUsername}** واختراق سيرفرات ماب **"${mapQuery}"**...`);
+        const sentMessage = await message.reply(`🔥 **[وضع القناص الأسطوري]** جاري تتبع الهدف **${targetUsername}** واستهداف أول ماب رئيسي لـ **"${mapQuery}"**...`);
 
         try {
             // 1. جلب الـ User ID للهدف بدقة مطلقة
@@ -60,28 +61,59 @@ client.on('messageCreate', async message => {
                 return sentMessage.edit(`❌ عذراً، اللاعب **${targetUsername}** غير موجود في روبلوكس!`);
             }
 
-            // 2. التحقق من الماب (هل هو مخزن بالجدول الذكي لو بحث حر؟)
+            // 2. جلب الماب المباشر (الأول والرئيسي دائماً)
             let placeId = null;
             let universeId = null;
             let gameName = mapQuery;
 
-            if (KNOWN_MAPS[mapQuery]) {
-                placeId = KNOWN_MAPS[mapQuery].placeId;
-                universeId = KNOWN_MAPS[mapQuery].universeId;
-                gameName = KNOWN_MAPS[mapQuery].name;
+            if (KNOWN_MAPS[lowerQuery]) {
+                placeId = KNOWN_MAPS[lowerQuery].placeId;
+                universeId = KNOWN_MAPS[lowerQuery].universeId;
+                gameName = KNOWN_MAPS[lowerQuery].name;
             } else {
+                // استخدام Omni-Search الرسمي الخاص بروبلوكس لجلب أول نتيجة رئيسية בדיוק כמו التطبيق
                 try {
-                    const fallbackRes = await axios.get(`https://games.roblox.com/v1/games/list?keyword=${encodeURIComponent(mapQuery)}&maxRows=1`);
-                    if (fallbackRes.data && fallbackRes.data.data.length > 0) {
-                        universeId = fallbackRes.data.data[0].id;
-                        placeId = fallbackRes.data.data[0].rootPlaceId;
-                        gameName = fallbackRes.data.data[0].name;
+                    const searchRes = await axios.get(`https://apis.roblox.com/search-api/omni-search?searchQuery=${encodeURIComponent(mapQuery)}&sessionId=12345678-1234-1234-1234-123456789abc`, {
+                        headers: { 'User-Agent': 'Mozilla/5.0' }
+                    });
+                    const rows = searchRes.data.combinedRows || [];
+                    
+                    let foundItem = null;
+                    for (const row of rows) {
+                        if (row.contents && row.contents.length > 0) {
+                            // نبحث عن أول نتيجة العاب رئيسية (Game)
+                            const match = row.contents.find(item => item.universeId || item.rootPlaceId || item.placeId);
+                            if (match) {
+                                foundItem = match;
+                                break;
+                            }
+                        }
                     }
-                } catch (e) {}
+
+                    if (foundItem) {
+                        universeId = foundItem.universeId;
+                        placeId = foundItem.rootPlaceId || foundItem.placeId;
+                        gameName = foundItem.name || mapQuery;
+                    }
+                } catch (err) {
+                    console.log('Omni-search error, using fallback list api...');
+                }
+
+                // خطة بديلة لو أخطأ الـ Omni-search: البحث المباشر عبر الـ Games API وجلب النتيجة رقم 1 الأولى حصراً
+                if (!placeId) {
+                    try {
+                        const fallbackRes = await axios.get(`https://games.roblox.com/v1/games/list?keyword=${encodeURIComponent(mapQuery)}&maxRows=1`);
+                        if (fallbackRes.data && fallbackRes.data.data.length > 0) {
+                            universeId = fallbackRes.data.data[0].id;
+                            placeId = fallbackRes.data.data[0].rootPlaceId;
+                            gameName = fallbackRes.data.data[0].name;
+                        }
+                    } catch (e) {}
+                }
             }
 
             if (!placeId) {
-                return sentMessage.edit(`❌ فشل العثور على الماب **"${mapQuery}"**. تأكد من كتابة الاختصار الصحيح مثل ` + '`tsb`' + `.`);
+                return sentMessage.edit(`❌ لم يتم العثور على أي ماب رئيسي بهذا الاسم: **"${mapQuery}"**.`);
             }
 
             // 3. جلب بيانات الماب الكاملة (لاعبين، إعجابات، زيارات)
@@ -103,16 +135,16 @@ client.on('messageCreate', async message => {
                 }
             } catch (e) {}
 
-            // 4. جلب أيقونة الماب
+            // 4. جلب أيقونة الماب الأساسي
             let mapThumbnail = '';
             try {
                 const thumbRes = await axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeId}&size=512x512&format=Png&isCircular=false`);
                 mapThumbnail = thumbRes.data.data[0]?.imageUrl || '';
             } catch (e) {}
 
-            await sentMessage.edit(`🗺️ الماب المستهدف: **${gameName}**\n🟢 اللاعبون الأونلاين: **${playerCount}** | 👍 التقييم: **${rating}%**\n⚙️ **جاري فحص آلاف السيرفرات الآن للقبض على الهدف...**`);
+            await sentMessage.edit(`🗺️ تم اعتماد أول ماب أساسي: **${gameName}**\n🟢 الأونلاين: **${playerCount}** | 👍 التقييم: **${rating}%**\n⚙️ **جاري تمشيط سيرفرات الماب الأصلي للقبض على الهدف...**`);
 
-            // 5. الفحص العميق والمكثف (حتى 2000 سيرفر)
+            // 5. الفحص العميق والمكثف لكل سيرفرات الماب الأول (حتى 2000 سيرفر)
             let scannedServersCount = 0;
             let foundServer = null;
             let cursor = '';
@@ -158,22 +190,22 @@ client.on('messageCreate', async message => {
             const username = userInfo.username || targetUsername;
             const displayName = userInfo.displayName || username;
 
-            // 7. إرسال النتيجة الحتمية
+            // 7. إرسال النتيجة النهائية بدقة مذهلة
             if (foundServer) {
                 const embed = new EmbedBuilder()
                     .setColor(0x00FF00)
-                    .setTitle(`🎯 تم سحق المستحيل وإيجاد الهدف!`)
+                    .setTitle(`🎯 تم العثور على الهدف في الماب الأصلي!`)
                     .setThumbnail(mapThumbnail)
                     .setImage(avatarUrl)
                     .addFields(
                         { name: '👤 الضحية / الهدف', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '🗺️ الماب المخترق', value: `**${gameName}**`, inline: false },
+                        { name: '🗺️ الماب الأساسي', value: `**${gameName}**`, inline: false },
                         { name: '📊 إحصائيات الماب', value: `🟢 الأونلاين: \`${playerCount}\` | 👍 التقييم: \`${rating}%\``, inline: false },
                         { name: '🔍 السيرفرات المفحوصة', value: `\`${scannedServersCount} سيرفر\` 🚀`, inline: true },
                         { name: '📍 الحالة', value: 'متصل داخل السيرفر وجاهز للهجوم ✅', inline: true }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Roblox Unstoppable Hunter' });
+                    .setFooter({ text: 'Roblox Pro Hunter Tracker' });
 
                 const row = new ActionRowBuilder()
                     .addComponents(
@@ -187,24 +219,24 @@ client.on('messageCreate', async message => {
             } else {
                 const embedNotFound = new EmbedBuilder()
                     .setColor(0xFF0000)
-                    .setTitle(`🛡️ تمشيط الماب اكتمل - الهدف غير موجود!`)
+                    .setTitle(`🛡️ تمشيط الماب الأصلي اكتمل - الهدف مختبئ!`)
                     .setThumbnail(mapThumbnail)
                     .addFields(
                         { name: '👤 الهدف', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '🗺️ الماب', value: `**${gameName}**`, inline: false },
+                        { name: '🗺️ الماب الأساسي', value: `**${gameName}**`, inline: false },
                         { name: '📊 إحصائيات الماب', value: `🟢 الأونلاين: \`${playerCount}\` | 👍 التقييم: \`${rating}%\``, inline: false },
                         { name: '🔍 السيرفرات المفحوصة', value: `\`${scannedServersCount} سيرفر\` (تم فحصها بالكامل)`, inline: true },
                         { name: '📍 الحالة', value: 'ليس موجوداً في هذا الماب حالياً (أو في سيرفر خاص ❌)', inline: true }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Roblox Unstoppable Hunter' });
+                    .setFooter({ text: 'Roblox Pro Hunter Tracker' });
 
                 await sentMessage.edit({ content: '', embeds: [embedNotFound], components: [] });
             }
 
         } catch (error) {
-            console.error('Unstoppable Mode Error:', error);
-            await sentMessage.edit('❌ حدث خطأ تقني، جاري إعادة ضبط النظام...');
+            console.error('Pro Hunter Mode Error:', error);
+            await sentMessage.edit('❌ حدث خطأ تقني، جاري ضبط النظام...');
         }
     }
 });
