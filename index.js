@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const noblox = require('noblox.js');
 const axios = require('axios');
 
@@ -6,73 +6,61 @@ process.on('uncaughtException', (err) => { console.error('⚠️ Uncaught Except
 process.on('unhandledRejection', (reason, promise) => { console.error('⚠️ Unhandled Rejection:', reason); });
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+    intents: [
+        GatewayIntentBits.Guilds, 
+        GatewayIntentBits.GuildMessages, 
+        GatewayIntentBits.MessageContent
+    ]
 });
 
-const DISCORD_BOT_TOKEN = process.env.DISCORD_TOKEN;
 const COOKIE = process.env.ROBLOX_COOKIE;
-
-// تعريف الأمر مع خيار إدخال اليوزر (Option)
-const commands = [
-    new SlashCommandBuilder()
-        .setName('join_user_roblox')
-        .setDescription('البحث عن حالة لاعب في روبلوكس ورابط الدخول مع السكن')
-        .addStringOption(option =>
-            option.setName('username')
-                .setDescription('اكتب يوزر حساب روبلوكس المراد مراقبته')
-                .setRequired(true))
-].map(command => command.toJSON());
 
 client.once('ready', async () => {
     try {
         if (!COOKIE) {
-            console.error('❌ Error: ROBLOX_COOKIE is missing!');
+            console.error('❌ Error: ROBLOX_COOKIE is missing in Environment Variables!');
             return;
         }
 
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully!`);
-
-        const rest = new REST({ version: '10' }).setToken(DISCORD_BOT_TOKEN);
-        
-        // تسجيل الأمر في كل السيرفرات المتواجد بها البوت ليظهر فوراً
-        const guilds = await client.guilds.fetch();
-        for (const [guildId] of guilds) {
-            await rest.put(
-                Routes.applicationGuildCommands(client.user.id, guildId),
-                { body: commands },
-            );
-            console.log(`[DISCORD] Slash command registered instantly for guild: ${guildId}`);
-        }
-
+        console.log(`[ROBLOX] Logged in successfully as bot account!`);
+        console.log(`[DISCORD] Bot is ready and listening to messages as ${client.user.tag}`);
     } catch (err) {
         console.error('Error during startup:', err);
     }
 });
 
-client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return;
+// استقبال الرسائل والأوامر النصية
+client.on('messageCreate', async message => {
+    if (message.author.bot || !message.content.startsWith('!')) return;
 
-    if (interaction.commandName === 'join_user_roblox') {
-        await interaction.deferReply();
+    const args = message.content.trim().split(/ +/);
+    const command = args[0].toLowerCase(); // الأمر الأساسي
 
-        // استخراج اليوزر اللي كتبه المستخدم بالأمر
-        const targetUsername = interaction.options.getString('username');
+    // التحقق من الأمر أن يكون !roblox فقط
+    if (command === '!roblox') {
+        const targetUsername = args[1]; // اليوزر المكتوب بعد الأمر
+
+        if (!targetUsername) {
+            return message.reply('❌ يرجى كتابة يوزر اللاعب بعد الأمر!\nمثال: `!roblox mfrr07786`');
+        }
+
+        const sentMessage = await message.reply(`🔍 جاري البحث عن اللاعب **${targetUsername}** في روبلوكس...`);
 
         try {
-            // جلب آيدي اللاعب من اليوزر المدخل
+            // جلب آيدي اللاعب من اليوزر
             let targetUserId;
             try {
                 targetUserId = await noblox.getIdFromUsername(targetUsername);
             } catch (e) {
-                return interaction.editReply(`❌ لم يتم العثور على اللاعب **${targetUsername}** في روبلوكس، تأكد من صحة اليوزر!`);
+                return sentMessage.edit(`❌ لم يتم العثور على اللاعب **${targetUsername}** في روبلوكس، تأكد من صحة اليوزر!`);
             }
 
             // جلب صورة السكن (Avatar Headshot)
             const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
             const avatarUrl = thumbResponse.data.data[0]?.imageUrl || '';
 
-            // فحص حالة اللاعب من بريزنس روبلوكس
+            // فحص حالة اللاعب من روبلوكس بريزنس
             const userPresence = await axios.post(`https://presence.roblox.com/v1/presence/users`, {
                 userIds: [targetUserId]
             });
@@ -96,10 +84,10 @@ client.on('interactionCreate', async interaction => {
                     .setTimestamp()
                     .setFooter({ text: 'Roblox Server Joiner Bot' });
 
-                return interaction.editReply({ embeds: [embedOffline] });
+                return sentMessage.edit({ content: '', embeds: [embedOffline] });
             }
 
-            // إذا كان داخل لعبة، نجيب بيانات السيرفر والماب
+            // إذا كان داخل لعبة، نجيب بيانات الماب والسيرفر
             const gameId = presenceData.gameId; 
             const placeId = presenceData.placeId; 
             const universeId = presenceData.universeId;
@@ -127,11 +115,11 @@ client.on('interactionCreate', async interaction => {
                         .setURL(`roblox://placeId=${placeId}&linkCode=${gameId}`)
                 );
 
-            await interaction.editReply({ embeds: [embed], components: [row] });
+            await sentMessage.edit({ content: '', embeds: [embed], components: [row] });
 
         } catch (error) {
             console.error(error);
-            await interaction.editReply('❌ حدث خطأ أثناء جلب بيانات السيرفر أو اللاعب.');
+            await sentMessage.edit('❌ حدث خطأ أثناء جلب بيانات السيرفر أو اللاعب.');
         }
     }
 });
@@ -145,8 +133,9 @@ function getStatusDetails(type) {
     }
 }
 
+const DISCORD_BOT_TOKEN = process.env.DISCORD_TOKEN;
 if (!DISCORD_BOT_TOKEN) {
-    console.error('❌ Error: DISCORD_TOKEN is missing!');
+    console.error('❌ Error: DISCORD_TOKEN is missing in Environment Variables!');
 } else {
     client.login(DISCORD_BOT_TOKEN);
 }
