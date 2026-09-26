@@ -15,11 +15,13 @@ const client = new Client({
 
 const COOKIE = process.env.ROBLOX_COOKIE;
 
-// جدول احتياطي للمابس الأساسية لضمان السرعة المطلقة
-const KNOWN_MAPS = {
-    "tsb": { name: "The Strongest Battlegrounds", placeId: 10449761463, universeId: 3582763374 },
-    "the strongest battlegrounds": { name: "The Strongest Battlegrounds", placeId: 10449761463, universeId: 3582763374 }
-};
+// قائمة الأغاني العشوائية (كل بحث جديد يختار أغنية واحدة فقط)
+const randomAudioTracks = [
+    'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+    'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+    'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
+    'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3'
+];
 
 client.once('ready', async () => {
     try {
@@ -28,7 +30,7 @@ client.once('ready', async () => {
             return;
         }
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully! (Pro Hunter Mode Active)`);
+        console.log(`[ROBLOX] Logged in successfully! (Smart Single Audio Mode Active)`);
         console.log(`[DISCORD] Bot is ready as ${client.user.tag}`);
     } catch (err) {
         console.error('Error during startup:', err);
@@ -44,13 +46,12 @@ client.on('messageCreate', async message => {
     if (command === '!roblox') {
         const targetUsername = args[1];
         const mapQuery = args.slice(2).join(' ').trim();
-        const lowerQuery = mapQuery.toLowerCase();
 
         if (!targetUsername || !mapQuery) {
-            return message.reply('❌ الاستخدام الصحيح:\n`!roblox اليوزر اسم_الماب`\nمثال: `!roblox DOOD_07786 TSB`');
+            return message.reply('❌ الاستخدام الصحيح:\n`!roblox اليوزر اسم_الماب`\nمثال: `!roblox IIIIIIIIII24 TSB`');
         }
 
-        const sentMessage = await message.reply(`🔥 **[وضع القناص الأسطوري]** جاري تتبع الهدف **${targetUsername}** واستهداف أول ماب رئيسي لـ **"${mapQuery}"**...`);
+        const sentMessage = await message.reply(`🔥 **[النظام الذكي]** جاري البحث عن أشهر ماب لـ **"${mapQuery}"** واستهداف اللاعب **${targetUsername}**...`);
 
         try {
             // 1. جلب الـ User ID للهدف بدقة مطلقة
@@ -61,64 +62,33 @@ client.on('messageCreate', async message => {
                 return sentMessage.edit(`❌ عذراً، اللاعب **${targetUsername}** غير موجود في روبلوكس!`);
             }
 
-            // 2. جلب الماب المباشر (الأول والرئيسي دائماً)
+            // 2. البحث الذكي لجلب المابات العامة الكبرى وتجنب المابات الشخصية
             let placeId = null;
             let universeId = null;
             let gameName = mapQuery;
 
-            if (KNOWN_MAPS[lowerQuery]) {
-                placeId = KNOWN_MAPS[lowerQuery].placeId;
-                universeId = KNOWN_MAPS[lowerQuery].universeId;
-                gameName = KNOWN_MAPS[lowerQuery].name;
-            } else {
-                // استخدام Omni-Search الرسمي الخاص بروبلوكس لجلب أول نتيجة رئيسية בדיוק כמו التطبيق
-                try {
-                    const searchRes = await axios.get(`https://apis.roblox.com/search-api/omni-search?searchQuery=${encodeURIComponent(mapQuery)}&sessionId=12345678-1234-1234-1234-123456789abc`, {
-                        headers: { 'User-Agent': 'Mozilla/5.0' }
-                    });
-                    const rows = searchRes.data.combinedRows || [];
-                    
-                    let foundItem = null;
-                    for (const row of rows) {
-                        if (row.contents && row.contents.length > 0) {
-                            // نبحث عن أول نتيجة العاب رئيسية (Game)
-                            const match = row.contents.find(item => item.universeId || item.rootPlaceId || item.placeId);
-                            if (match) {
-                                foundItem = match;
-                                break;
-                            }
-                        }
-                    }
+            try {
+                const searchRes = await axios.get(`https://games.roblox.com/v1/games/list?keyword=${encodeURIComponent(mapQuery)}&maxRows=20`);
+                const games = searchRes.data.data || [];
 
-                    if (foundItem) {
-                        universeId = foundItem.universeId;
-                        placeId = foundItem.rootPlaceId || foundItem.placeId;
-                        gameName = foundItem.name || mapQuery;
-                    }
-                } catch (err) {
-                    console.log('Omni-search error, using fallback list api...');
-                }
+                const validGames = games.filter(g => g.name && !g.name.toLowerCase().includes("'s place"));
+                const bestMatch = validGames.length > 0 ? validGames[0] : (games.length > 0 ? games[0] : null);
 
-                // خطة بديلة لو أخطأ الـ Omni-search: البحث المباشر عبر الـ Games API وجلب النتيجة رقم 1 الأولى حصراً
-                if (!placeId) {
-                    try {
-                        const fallbackRes = await axios.get(`https://games.roblox.com/v1/games/list?keyword=${encodeURIComponent(mapQuery)}&maxRows=1`);
-                        if (fallbackRes.data && fallbackRes.data.data.length > 0) {
-                            universeId = fallbackRes.data.data[0].id;
-                            placeId = fallbackRes.data.data[0].rootPlaceId;
-                            gameName = fallbackRes.data.data[0].name;
-                        }
-                    } catch (e) {}
+                if (bestMatch) {
+                    universeId = bestMatch.id;
+                    placeId = bestMatch.rootPlaceId;
+                    gameName = bestMatch.name;
                 }
+            } catch (err) {
+                console.error('Map Search Error:', err);
             }
 
             if (!placeId) {
-                return sentMessage.edit(`❌ لم يتم العثور على أي ماب رئيسي بهذا الاسم: **"${mapQuery}"**.`);
+                return sentMessage.edit(`❌ لم يتم العثور على ماب رسمي بهذا الاسم: **"${mapQuery}"**.`);
             }
 
-            // 3. جلب بيانات الماب الكاملة (لاعبين، إعجابات، زيارات)
+            // 3. جلب بيانات الماب الكاملة (لاعبين، تقييم)
             let playerCount = 0;
-            let visits = 0;
             let rating = 0;
 
             try {
@@ -127,7 +97,6 @@ client.on('messageCreate', async message => {
                 if (gData) {
                     gameName = gData.name || gameName;
                     playerCount = gData.playing || 0;
-                    visits = gData.visits || 0;
                     const votesUp = gData.upVotes || 0;
                     const votesDown = gData.downVotes || 0;
                     const totalVotes = votesUp + votesDown;
@@ -135,16 +104,16 @@ client.on('messageCreate', async message => {
                 }
             } catch (e) {}
 
-            // 4. جلب أيقونة الماب الأساسي
+            // 4. جلب أيقونة الماب
             let mapThumbnail = '';
             try {
                 const thumbRes = await axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeId}&size=512x512&format=Png&isCircular=false`);
                 mapThumbnail = thumbRes.data.data[0]?.imageUrl || '';
             } catch (e) {}
 
-            await sentMessage.edit(`🗺️ تم اعتماد أول ماب أساسي: **${gameName}**\n🟢 الأونلاين: **${playerCount}** | 👍 التقييم: **${rating}%**\n⚙️ **جاري تمشيط سيرفرات الماب الأصلي للقبض على الهدف...**`);
+            await sentMessage.edit(`🗺️ الماب الرسمي المستهدف: **${gameName}**\n🟢 الأونلاين: **${playerCount}** | 👍 التقييم: **${rating}%**\n⚙️ **جاري فحص سيرفرات الماب للعثور على اللاعب...**`);
 
-            // 5. الفحص العميق والمكثف لكل سيرفرات الماب الأول (حتى 2000 سيرفر)
+            // 5. الفحص العميق لسيرفرات الماب
             let scannedServersCount = 0;
             let foundServer = null;
             let cursor = '';
@@ -190,53 +159,64 @@ client.on('messageCreate', async message => {
             const username = userInfo.username || targetUsername;
             const displayName = userInfo.displayName || username;
 
-            // 7. إرسال النتيجة النهائية بدقة مذهلة
+            // اختيار أغنية عشوائية واحدة فقط لهذا البحث حصراً
+            const selectedSong = randomAudioTracks[Math.floor(Math.random() * randomAudioTracks.length)];
+
+            // 7. إرسال النتيجة النهائية مع الأغنية الواحدة المختارة والزر المخصص
             if (foundServer) {
                 const embed = new EmbedBuilder()
                     .setColor(0x00FF00)
-                    .setTitle(`🎯 تم العثور على الهدف في الماب الأصلي!`)
+                    .setTitle(`🎯 تم العثور على الهدف داخل الماب!`)
                     .setThumbnail(mapThumbnail)
                     .setImage(avatarUrl)
                     .addFields(
                         { name: '👤 الضحية / الهدف', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '🗺️ الماب الأساسي', value: `**${gameName}**`, inline: false },
+                        { name: '🗺️ اسم الماب', value: `**${gameName}**`, inline: false },
                         { name: '📊 إحصائيات الماب', value: `🟢 الأونلاين: \`${playerCount}\` | 👍 التقييم: \`${rating}%\``, inline: false },
                         { name: '🔍 السيرفرات المفحوصة', value: `\`${scannedServersCount} سيرفر\` 🚀`, inline: true },
                         { name: '📍 الحالة', value: 'متصل داخل السيرفر وجاهز للهجوم ✅', inline: true }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Roblox Pro Hunter Tracker' });
+                    .setFooter({ text: 'Roblox Smart Hunter Tracker' });
 
                 const row = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
-                            .setLabel('HUNT & JOIN SERVER')
+                            .setLabel(`الـبحث عن الاعب ب ${gameName}`.substring(0, 80))
                             .setStyle(ButtonStyle.Link)
                             .setURL(`roblox://placeId=${placeId}&linkCode=${foundServer.id}`)
                     );
 
-                await sentMessage.edit({ content: '', embeds: [embed], components: [row] });
+                await sentMessage.edit({ content: `🎵 **معزوفة مختارة لهذا البحث:**\n${selectedSong}`, embeds: [embed], components: [row] });
             } else {
                 const embedNotFound = new EmbedBuilder()
                     .setColor(0xFF0000)
-                    .setTitle(`🛡️ تمشيط الماب الأصلي اكتمل - الهدف مختبئ!`)
+                    .setTitle(`🛡️ تمشيط الماب اكتمل - الهدف غير موجود!`)
                     .setThumbnail(mapThumbnail)
                     .addFields(
                         { name: '👤 الهدف', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '🗺️ الماب الأساسي', value: `**${gameName}**`, inline: false },
+                        { name: '🗺️ اسم الماب', value: `**${gameName}**`, inline: false },
                         { name: '📊 إحصائيات الماب', value: `🟢 الأونلاين: \`${playerCount}\` | 👍 التقييم: \`${rating}%\``, inline: false },
                         { name: '🔍 السيرفرات المفحوصة', value: `\`${scannedServersCount} سيرفر\` (تم فحصها بالكامل)`, inline: true },
                         { name: '📍 الحالة', value: 'ليس موجوداً في هذا الماب حالياً (أو في سيرفر خاص ❌)', inline: true }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Roblox Pro Hunter Tracker' });
+                    .setFooter({ text: 'Roblox Smart Hunter Tracker' });
 
-                await sentMessage.edit({ content: '', embeds: [embedNotFound], components: [] });
+                const row = new ActionRowBuilder()
+                    .addComponents(
+                        new ButtonBuilder()
+                            .setLabel(`الـبحث عن الاعب ب ${gameName}`.substring(0, 80))
+                            .setStyle(ButtonStyle.Link)
+                            .setURL(`roblox://placeId=${placeId}`)
+                    );
+
+                await sentMessage.edit({ content: `🎵 **معزوفة مختارة لهذا البحث:**\n${selectedSong}`, embeds: [embedNotFound], components: [row] });
             }
 
         } catch (error) {
-            console.error('Pro Hunter Mode Error:', error);
-            await sentMessage.edit('❌ حدث خطأ تقني، جاري ضبط النظام...');
+            console.error('Smart Mode Error:', error);
+            await sentMessage.edit('❌ حدث خطأ تقني، يرجى المحاولة لاحقاً.');
         }
     }
 });
