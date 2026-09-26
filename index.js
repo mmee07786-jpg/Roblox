@@ -30,7 +30,7 @@ client.once('ready', async () => {
             return;
         }
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully! (Advanced Modal & Deep Search Mode Active)`);
+        console.log(`[ROBLOX] Logged in successfully! (Direct Tracker Mode Active)`);
         console.log(`[DISCORD] Bot is ready as ${client.user.tag}`);
     } catch (err) {
         console.error('Error during startup:', err);
@@ -47,13 +47,13 @@ client.on('messageCreate', async message => {
         const targetUsername = args[1];
 
         if (!targetUsername) {
-            return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m IIIIIIIIII24`');
+            return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m bshsvs54`');
         }
 
-        const sentMessage = await message.reply(`⚡ **[البحث الشامل]** جاري تحليل الحساب وفحص نشاط اللاعب **${targetUsername}** في روبلوكس...`);
+        const sentMessage = await message.reply(`⚡ **[جاري جلب الملف الشخصي]** يتم تجهيز رادار البحث للاعب **${targetUsername}**...`);
 
         try {
-            // 1. جلب الـ User ID للهدف
+            // 1. جلب الـ User ID للهدف بدقة مطلقة
             let targetUserId;
             try {
                 targetUserId = await noblox.getIdFromUsername(targetUsername);
@@ -61,7 +61,7 @@ client.on('messageCreate', async message => {
                 return sentMessage.edit(`❌ عذراً، اللاعب **${targetUsername}** غير موجود في روبلوكس!`);
             }
 
-            // 2. جلب صورة سكن اللاعب ومعلوماته
+            // 2. جلب صورة سكن اللاعب ومعلوماته الأساسية
             let avatarUrl = '';
             try {
                 const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
@@ -72,55 +72,28 @@ client.on('messageCreate', async message => {
             const username = userInfo.username || targetUsername;
             const displayName = userInfo.displayName || username;
 
-            // 3. فحص حالة الحضور العامة عبر بروفایل روبلوكس (Presence API)
-            let presenceGameName = null;
-            let presencePlaceId = null;
-            let isOnline = false;
-            let hasPrivacyRestriction = false;
-
-            try {
-                const presenceRes = await axios.post('https://presence.roblox.com/v1/presence/users', {
-                    userIds: [targetUserId]
-                }, {
-                    headers: { Cookie: `.ROBLOSECURITY=${COOKIE}` }
-                });
-
-                const presence = presenceRes.data.userPresences?.[0];
-                if (presence) {
-                    if (presence.userPresenceType === 1 || presence.userPresenceType === 2 || presence.userPresenceType === 3) {
-                        isOnline = true;
-                        presencePlaceId = presence.placeId;
-                        presenceGameName = presence.lastLocation;
-                    } else if (presence.userPresenceType === 0) {
-                        isOnline = false;
-                    }
-                }
-            } catch (e) {
-                hasPrivacyRestriction = true;
-            }
-
             // اختيار أغنية عشوائية واحدة فقط لهذا البحث
             const selectedSong = randomAudioTracks[Math.floor(Math.random() * randomAudioTracks.length)];
 
-            // صياغة الإمبد الأولي
+            // صياغة الإمبد الأولي (جاهز لتلقي اسم الماب من الزر)
             const embed = new EmbedBuilder()
-                .setColor(isOnline ? 0x00FF00 : 0xFF0000)
-                .setTitle(`🎯 نتيجة رصد اللاعب: ${displayName}`)
+                .setColor(0x0099FF)
+                .setTitle(`🎯 رادار اللاعب: ${displayName}`)
                 .setImage(avatarUrl)
                 .addFields(
                     { name: '👤 معلومات الحساب', value: `\`${displayName}\` (@${username})`, inline: false },
-                    { name: '📍 حالة الاتصال', value: isOnline ? '🟢 **متصل حالياً!**' : '❌ **غير متصل أو الحساب مخفي (أو مسوي تقييد خصوصية)**', inline: false },
-                    { name: '🗺️ الماب الحالي', value: presenceGameName ? `**${presenceGameName}**` : '⚠️ *غير مرئي (بسبب إعدادات الخصوصية أو التقييد)*', inline: false }
+                    { name: '📍 الحالة الحالية', value: '🟢 **جاهز للفحص!** (اضغط الزر بالأسفل لتحديد الماب الذي يتواجد فيه حالياً)', inline: false },
+                    { name: '🗺️ طريقة الفحص', value: 'بما أن روبلوكس تحجب الحالة أحياناً، اضغط زر **"حدد الماب المتوقع"** واكتب اسم الماب (مثلاً `Evade`) لكي يقوم البوت بتمشيط السيرفرات وإيجاده فوراً 🚀', inline: false }
                 )
                 .setTimestamp()
-                .setFooter({ text: 'Roblox Deep Tracker Bot' });
+                .setFooter({ text: 'Roblox Direct Tracker Bot' });
 
-            // زر يفتح Modal يخلي المستخدم يكتب الماب المتوقع
+            // زر يفتح Modal يخلي المستخدم يكتب اسم الماب بدقة
             const row = new ActionRowBuilder()
                 .addComponents(
                     new ButtonBuilder()
                         .setCustomId(`guess_map_${targetUserId}`)
-                        .setLabel('🔍 حدد الماب المتوقع (بحث يدوي عميق)')
+                        .setLabel('🔍 حدد الماب المتوقع (مثل Evade)')
                         .setStyle(ButtonStyle.Primary)
                 );
 
@@ -128,12 +101,12 @@ client.on('messageCreate', async message => {
 
         } catch (error) {
             console.error('Tracker Error:', error);
-            await sentMessage.edit('❌ حدث خطأ تقني أثناء الفحص، يرجى المحاولة لاحقاً.');
+            await sentMessage.edit('❌ حدث خطأ تقني أثناء جلب معلومات اللاعب.');
         }
     }
 });
 
-// التعامل مع الضغط على الزر وفتح نافذة إدخال اسم الماب (Modal)
+// التعامل مع نافذة الإدخال (Modal) لاكتشاف الماب
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
@@ -142,11 +115,11 @@ client.on('interactionCreate', async interaction => {
 
         const modal = new ModalBuilder()
             .setCustomId(`modal_search_${targetUserId}`)
-            .setTitle('بحث عميق عن اللاعب بالماب المتوقع');
+            .setTitle('بحث وتتبع اللاعب داخل الماب');
 
         const mapInput = new TextInputBuilder()
             .setCustomId('map_name_input')
-            .setLabel('اكتب اسم الماب المتوقع (مثل: TSB, Blox Fruits)')
+            .setLabel('اكتب اسم الماب (مثال: Evade, TSB)')
             .setStyle(TextInputStyle.Short)
             .setPlaceholder('اكتب اسم الماب هنا...')
             .setRequired(true);
@@ -158,7 +131,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// استقبال البيانات من نافذة الـ Modal وتنفيذ الفحص العميق والموسع
+// استقبال اسم الماب وتمشيط السيرفرات بدقة عالية
 client.on('interactionCreate', async interaction => {
     if (!interaction.isModalSubmit()) return;
 
@@ -166,7 +139,7 @@ client.on('interactionCreate', async interaction => {
         const targetUserId = interaction.customId.split('_')[2];
         const mapQuery = interaction.fields.getTextInputValue('map_name_input');
 
-        await interaction.reply({ content: `⚡ **[جاري الفحص الموسع]** يتم تمشيط سيرفرات ماب **"${mapQuery}"** بالكامل للبحث عن اللاعب...`, ephemeral: true });
+        await interaction.reply({ content: `⚡ **[جاري تمشيط السيرفرات]** يتم فحص سيرفرات ماب **"${mapQuery}"** بحثاً عن اللاعب...`, ephemeral: true });
 
         try {
             // البحث عن الماب المدخل
@@ -191,12 +164,12 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply(`❌ لم يتم العثور على ماب بهذا الاسم: **"${mapQuery}"**.`);
             }
 
-            // فحص سيرفرات الماب بعمق (أخذ الوقت الكافي بالبحث)
+            // فحص السيرفرات بعمق وسرعة
             let scannedServersCount = 0;
             let foundServer = null;
             let cursor = '';
             let attempts = 0;
-            const maxAttempts = 35; // زيادة عدد المحاولات لكي يأخذ البوت راحته بالبحث
+            const maxAttempts = 35; // محاولات كافية جداً لفحص القوائم
 
             while (attempts < maxAttempts) {
                 attempts++;
@@ -209,7 +182,7 @@ client.on('interactionCreate', async interaction => {
 
                     for (const server of servers) {
                         scannedServersCount++;
-                        if (server.playerIds && server.playerIds.includes(targetUserId)) {
+                        if (server.playerIds && server.playerIds.includes(Number(targetUserId))) {
                             foundServer = server;
                             break;
                         }
@@ -226,7 +199,7 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // جلب معلومات اللاعب وصورته
+            // جلب صورة اللاعب ومعلوماته
             let avatarUrl = '';
             try {
                 const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
@@ -237,29 +210,28 @@ client.on('interactionCreate', async interaction => {
             const username = userInfo.username;
             const displayName = userInfo.displayName;
 
-            // نتيجة البحث اليدوي العميق
             if (foundServer) {
                 const embedFound = new EmbedBuilder()
                     .setColor(0x00FF00)
-                    .setTitle(`🎯 تم العثور على اللاعب في الماب المتوقع!`)
+                    .setTitle(`🎯 تم رصد اللاعب بنجاح داخل الماب!`)
                     .setImage(avatarUrl)
                     .addFields(
                         { name: '👤 اللاعب المستهدف', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '📍 حالة الاتصال', value: '🟢 **متصل داخل هذا الماب وتأكدنا من وجوده!**', inline: false },
+                        { name: '📍 حالة الاتصال', value: '🟢 **متصل داخل هذا السيرفر حالياً!**', inline: false },
                         { name: '🗺️ اسم الماب', value: `**${gameName}**`, inline: false },
-                        { name: '📊 إحصائيات الفحص', value: `تم فحص \`${scannedServersCount}\` سيرفر حتى تم العثور عليه 🚀`, inline: false }
+                        { name: '📊 إحصائيات الفحص', value: `تم فحص \`${scannedServersCount}\` سيرفر وتم العثور عليه بنجاح 🚀`, inline: false }
                     )
                     .setTimestamp();
 
                 const rowButton = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
-                            .setLabel(`الـبحث عن الاعب ب ${gameName}`.substring(0, 80))
+                            .setLabel(`الدخول إلى سيرفر اللاعب`.substring(0, 80))
                             .setStyle(ButtonStyle.Link)
                             .setURL(`roblox://placeId=${placeId}&linkCode=${foundServer.id}`)
                     );
 
-                await interaction.editReply({ content: `✅ **تمت العملية بنجاح!**`, embeds: [embedFound], components: [rowButton] });
+                await interaction.editReply({ content: `✅ **تم إيجاد اللاعب بنجاح!**`, embeds: [embedFound], components: [rowButton] });
             } else {
                 const embedNotFound = new EmbedBuilder()
                     .setColor(0xFF0000)
@@ -267,21 +239,21 @@ client.on('interactionCreate', async interaction => {
                     .setImage(avatarUrl)
                     .addFields(
                         { name: '👤 اللاعب المستهدف', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '📍 حالة الاتصال', value: '❌ **غير موجود في سيرفرات هذا الماب العامة حالياً**', inline: false },
+                        { name: '📍 حالة الاتصال', value: '❌ **غير موجود في السيرفرات العامة لهذا الماب** (قد يكون في سيرفر خاص VIP أو ماب آخر)', inline: false },
                         { name: '🗺️ الماب المفحوص', value: `**${gameName}**`, inline: false },
-                        { name: '📊 إحصائيات الفحص', value: `تم فحص \`${scannedServersCount}\` سيرفر بالكامل دون العثور عليه (قد يكون في سيرفر خاص أو ماب آخر).`, inline: false }
+                        { name: '📊 إحصائيات الفحص', value: `تم فحص \`${scannedServersCount}\` سيرفر بالكامل.`, inline: false }
                     )
                     .setTimestamp();
 
                 const rowButton = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
-                            .setLabel(`الـبحث عن الاعب ب ${gameName}`.substring(0, 80))
+                            .setLabel(`فتح الماب`.substring(0, 80))
                             .setStyle(ButtonStyle.Link)
                             .setURL(`roblox://placeId=${placeId}`)
                     );
 
-                await interaction.editReply({ content: `⚠️ **انتهى الفحص الموسع.**`, embeds: [embedNotFound], components: [rowButton] });
+                await interaction.editReply({ content: `⚠️ **انتهى الفحص.**`, embeds: [embedNotFound], components: [rowButton] });
             }
 
         } catch (error) {
