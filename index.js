@@ -43,7 +43,7 @@ client.on('messageCreate', async message => {
             return message.reply('❌ الاستخدام الصحيح:\n`!roblox اليوزر اسم_الماب`\nمثال: `!roblox DOOD_07786 TSB`');
         }
 
-        const sentMessage =@ message.reply(`🔥 **[وضع التحدي الأقصى]** جاري تحليل الهدف **${targetUsername}** والبحث عن الماب **"${mapQuery}"** بكل الطرق الممكنة...`);
+        const sentMessage = await message.reply(`🔥 **[وضع التحدي الأقصى]** جاري تحليل الهدف **${targetUsername}** والبحث عن الماب **"${mapQuery}"** بكل الطرق الممكنة...`);
 
         try {
             // 1. جلب الـ User ID للهدف بدقة
@@ -61,7 +61,7 @@ client.on('messageCreate', async message => {
 
             try {
                 const searchRes = await axios.get(`https://apis.roblox.com/search-api/omni-search?searchQuery=${encodeURIComponent(mapQuery)}&sessionId=12345678-1234-1234-1234-123456789abc`, {
-                    headers: { 'User-Agent:': 'Mozilla/5.0' }
+                    headers: { 'User-Agent': 'Mozilla/5.0' }
                 });
                 const contents = searchRes.data.combinedRows || [];
                 
