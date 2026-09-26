@@ -30,7 +30,7 @@ client.once('ready', async () => {
             return;
         }
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully! (Direct Tracker Mode Active)`);
+        console.log(`[ROBLOX] Logged in successfully! (Fixed Tracker Mode Active)`);
         console.log(`[DISCORD] Bot is ready as ${client.user.tag}`);
     } catch (err) {
         console.error('Error during startup:', err);
@@ -47,13 +47,13 @@ client.on('messageCreate', async message => {
         const targetUsername = args[1];
 
         if (!targetUsername) {
-            return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m bshsvs54`');
+            return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m Toi`');
         }
 
         const sentMessage = await message.reply(`⚡ **[جاري جلب الملف الشخصي]** يتم تجهيز رادار البحث للاعب **${targetUsername}**...`);
 
         try {
-            // 1. جلب الـ User ID للهدف بدقة مطلقة
+            // 1. جلب الـ User ID للهدف باستخدام noblox مباشرة لضمان الدقة المطلقة
             let targetUserId;
             try {
                 targetUserId = await noblox.getIdFromUsername(targetUsername);
@@ -61,12 +61,15 @@ client.on('messageCreate', async message => {
                 return sentMessage.edit(`❌ عذراً، اللاعب **${targetUsername}** غير موجود في روبلوكس!`);
             }
 
-            // 2. جلب صورة سكن اللاعب ومعلوماته الأساسية
+            // 2. جلب صورة سكن اللاعب باستخدام الدالة الرسمية لضمان عدم حدوث خطأ
             let avatarUrl = '';
             try {
-                const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
-                avatarUrl = thumbResponse.data.data[0]?.imageUrl || '';
-            } catch (err) {}
+                const headshots = await noblox.getPlayerThumbnail(targetUserId, '420x420', 'png', false, 'headshot');
+                avatarUrl = headshots[0]?.imageUrl || '';
+            } catch (err) {
+                // بديل احتياطي بالرابط المباشر
+                avatarUrl = `https://www.roblox.com/headshot-thumbnail/image?userId=${targetUserId}&width=420&height=420&format=png`;
+            }
 
             const userInfo = await noblox.getPlayerInfo(targetUserId).catch(() => ({ username: targetUsername, displayName: targetUsername }));
             const username = userInfo.username || targetUsername;
@@ -75,7 +78,7 @@ client.on('messageCreate', async message => {
             // اختيار أغنية عشوائية واحدة فقط لهذا البحث
             const selectedSong = randomAudioTracks[Math.floor(Math.random() * randomAudioTracks.length)];
 
-            // صياغة الإمبد الأولي (جاهز لتلقي اسم الماب من الزر)
+            // صياغة الإمبد الأولي
             const embed = new EmbedBuilder()
                 .setColor(0x0099FF)
                 .setTitle(`🎯 رادار اللاعب: ${displayName}`)
@@ -86,7 +89,7 @@ client.on('messageCreate', async message => {
                     { name: '🗺️ طريقة الفحص', value: 'بما أن روبلوكس تحجب الحالة أحياناً، اضغط زر **"حدد الماب المتوقع"** واكتب اسم الماب (مثلاً `Evade`) لكي يقوم البوت بتمشيط السيرفرات وإيجاده فوراً 🚀', inline: false }
                 )
                 .setTimestamp()
-                .setFooter({ text: 'Roblox Direct Tracker Bot' });
+                .setFooter({ text: 'Roblox Fixed Tracker Bot' });
 
             // زر يفتح Modal يخلي المستخدم يكتب اسم الماب بدقة
             const row = new ActionRowBuilder()
@@ -119,7 +122,7 @@ client.on('interactionCreate', async interaction => {
 
         const mapInput = new TextInputBuilder()
             .setCustomId('map_name_input')
-            .setLabel('اكتب اسم الماب (مثال: Evade, TSB)')
+            .setLabel('اكتب اسم الماب (مثل: Evade, TSB)')
             .setStyle(TextInputStyle.Short)
             .setPlaceholder('اكتب اسم الماب هنا...')
             .setRequired(true);
@@ -199,12 +202,14 @@ client.on('interactionCreate', async interaction => {
                 }
             }
 
-            // جلب صورة اللاعب ومعلوماته
+            // جلب صورة اللاعب ومعلوماته بدقة
             let avatarUrl = '';
             try {
-                const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
-                avatarUrl = thumbResponse.data.data[0]?.imageUrl || '';
-            } catch (err) {}
+                const headshots = await noblox.getPlayerThumbnail(Number(targetUserId), '420x420', 'png', false, 'headshot');
+                avatarUrl = headshots[0]?.imageUrl || '';
+            } catch (err) {
+                avatarUrl = `https://www.roblox.com/headshot-thumbnail/image?userId=${targetUserId}&width=420&height=420&format=png`;
+            }
 
             const userInfo = await noblox.getPlayerInfo(Number(targetUserId)).catch(() => ({ username: 'TargetUser', displayName: 'TargetUser' }));
             const username = userInfo.username;
