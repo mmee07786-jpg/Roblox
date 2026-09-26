@@ -11,13 +11,16 @@ const client = new Client({
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_TOKEN;
 const COOKIE = process.env.ROBLOX_COOKIE;
-const TARGET_USERNAME = 'mfrr07786'; 
-let targetUserId = null;
 
+// تعريف الأمر مع خيار إدخال اليوزر (Option)
 const commands = [
     new SlashCommandBuilder()
-        .setName('join')
-        .setDescription('معرفة حالة صديقك ورابط الانخراط بالماب مع السكن!')
+        .setName('join_user_roblox')
+        .setDescription('البحث عن حالة لاعب في روبلوكس ورابط الدخول مع السكن')
+        .addStringOption(option =>
+            option.setName('username')
+                .setDescription('اكتب يوزر حساب روبلوكس المراد مراقبته')
+                .setRequired(true))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -30,19 +33,16 @@ client.once('ready', async () => {
         await noblox.setCookie(COOKIE);
         console.log(`[ROBLOX] Logged in successfully!`);
 
-        targetUserId = await noblox.getIdFromUsername(TARGET_USERNAME);
-        console.log(`[ROBLOX] Tracking user ID: ${targetUserId}`);
-
         const rest = new REST({ version: '10' }).setToken(DISCORD_BOT_TOKEN);
         
-        // جلب أول سيرفر للبوت وتسجيل الأمر فيه حصرياً حتى يظهر فوراً
+        // تسجيل الأمر في كل السيرفرات المتواجد بها البوت ليظهر فوراً
         const guilds = await client.guilds.fetch();
         for (const [guildId] of guilds) {
             await rest.put(
                 Routes.applicationGuildCommands(client.user.id, guildId),
                 { body: commands },
             );
-            console.log(`[DISCORD] Slash commands registered instantly for guild: ${guildId}`);
+            console.log(`[DISCORD] Slash command registered instantly for guild: ${guildId}`);
         }
 
     } catch (err) {
@@ -53,30 +53,41 @@ client.once('ready', async () => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    if (interaction.commandName === 'join') {
+    if (interaction.commandName === 'join_user_roblox') {
         await interaction.deferReply();
 
+        // استخراج اليوزر اللي كتبه المستخدم بالأمر
+        const targetUsername = interaction.options.getString('username');
+
         try {
-            if (!targetUserId) {
-                return interaction.editReply('❌ لم يتم العثور على اللاعب الأساسي أو أن البوت لم يسجل دخول بعد.');
+            // جلب آيدي اللاعب من اليوزر المدخل
+            let targetUserId;
+            try {
+                targetUserId = await noblox.getIdFromUsername(targetUsername);
+            } catch (e) {
+                return interaction.editReply(`❌ لم يتم العثور على اللاعب **${targetUsername}** في روبلوكس، تأكد من صحة اليوزر!`);
             }
 
+            // جلب صورة السكن (Avatar Headshot)
             const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
             const avatarUrl = thumbResponse.data.data[0]?.imageUrl || '';
 
+            // فحص حالة اللاعب من بريزنس روبلوكس
             const userPresence = await axios.post(`https://presence.roblox.com/v1/presence/users`, {
                 userIds: [targetUserId]
             });
 
             const presenceData = userPresence.data.presence[0];
             const presenceType = presenceData.userPresenceType; 
+            // 0: Offline, 1: Online, 2: In Game, 3: In Studio
 
+            // إذا اللاعب مو داخل لعبة
             if (presenceType !== 2) {
                 const statusInfo = getStatusDetails(presenceType);
                 
                 const embedOffline = new EmbedBuilder()
                     .setColor(statusInfo.color)
-                    .setTitle(`🎮 حالة اللاعب: ${TARGET_USERNAME}`)
+                    .setTitle(`🎮 حالة اللاعب: ${targetUsername}`)
                     .setThumbnail(avatarUrl)
                     .addFields(
                         { name: '📍 الحالة الحالية', value: `\`${statusInfo.text}\``, inline: false },
@@ -88,6 +99,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.editReply({ embeds: [embedOffline] });
             }
 
+            // إذا كان داخل لعبة، نجيب بيانات السيرفر والماب
             const gameId = presenceData.gameId; 
             const placeId = presenceData.placeId; 
             const universeId = presenceData.universeId;
@@ -97,7 +109,7 @@ client.on('interactionCreate', async interaction => {
 
             const embed = new EmbedBuilder()
                 .setColor(0x00FF00)
-                .setTitle(`🎮 حالة اللاعب: ${TARGET_USERNAME}`)
+                .setTitle(`🎮 حالة اللاعب: ${targetUsername}`)
                 .setThumbnail(avatarUrl)
                 .addFields(
                     { name: '📍 الماب الحالي', value: `\`${gameName}\``, inline: false },
@@ -119,7 +131,7 @@ client.on('interactionCreate', async interaction => {
 
         } catch (error) {
             console.error(error);
-            await interaction.editReply('❌ حدث خطأ أثناء جلب بيانات السيرفر.');
+            await interaction.editReply('❌ حدث خطأ أثناء جلب بيانات السيرفر أو اللاعب.');
         }
     }
 });
