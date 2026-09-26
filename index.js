@@ -29,7 +29,7 @@ client.once('ready', async () => {
             return;
         }
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully! (Forced Presence Reader Active)`);
+        console.log(`[ROBLOX] Logged in successfully! (Smart Tracker Active)`);
         console.log(`[DISCORD] Bot is ready as ${client.user.tag}`);
     } catch (err) {
         console.error('Error during startup:', err);
@@ -46,10 +46,10 @@ client.on('messageCreate', async message => {
         const targetUsername = args[1];
 
         if (!targetUsername) {
-            return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m RL_EYAD`');
+            return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m Toi`');
         }
 
-        const sentMessage = await message.reply(`⚡ **[جاري فحص الحالة الإجباري]** يتم سحب حالة اللاعب **${targetUsername}** من سيرفرات روبلوكس...`);
+        const sentMessage = await message.reply(`⚡ **[جاري فحص رادار اللاعب]** يتم فحص حالة اللاعب **${targetUsername}** بدقة...`);
 
         try {
             // 1. جلب الـ User ID
@@ -57,13 +57,16 @@ client.on('messageCreate', async message => {
             try {
                 targetUserId = await noblox.getIdFromUsername(targetUsername);
             } catch (e) {
-                return sentMessage.edit(`❌ عذراً، اللاعب **${targetUsername}** غير موجود!`);
+                return sentMessage.edit(`❌ عذراً، اللاعب **${targetUsername}** غير موجود في روبلوكس!`);
             }
 
-            // 2. محاولة قراءة الحالة الحقيقية بالقوة (Forced Presence Fetch)
+            // 2. سحب الحالة عبر الـ Presence API بالتفصيل
             let presenceStatus = 'غير متصل أو الحساب مخفي ❌';
-            let gameLocation = 'غير مرئي (بسبب إعدادات الخصوصية)';
+            let gameName = 'غير مرئي (بسبب إعدادات الخصوصية)';
+            let placeId = null;
+            let universeId = null;
             let embedColor = 0xFF0000;
+            let isinGame = false;
 
             try {
                 const presenceRes = await axios.post('https://presence.roblox.com/v1/presence/users', {
@@ -77,14 +80,27 @@ client.on('messageCreate', async message => {
 
                 const presenceData = presenceRes.data.userPresences[0];
                 if (presenceData) {
-                    // أنواع الحالة في روبلوكس: 0=Offline, 1=Online, 2=InGame, 3=InStudio
                     if (presenceData.userPresenceType === 1) {
                         presenceStatus = '🟢 متصل (Online في الصفحة الرئيسية)';
                         embedColor = 0x00FF00;
                     } else if (presenceData.userPresenceType === 2) {
+                        isinGame = true;
                         presenceStatus = '🎮 متصل وداخل ماب (In-Game)';
-                        if (presenceData.lastLocation) gameLocation = presenceData.lastLocation;
                         embedColor = 0x00FF00;
+                        
+                        universeId = presenceData.universeId;
+                        if (universeId) {
+                            // جلب معلومات الماب والـ PlaceId الحقيقي المرتبط باللعبة
+                            try {
+                                const gameInfoRes = await axios.get(`https://games.roblox.com/v1/games?universeIds=${universeId}`);
+                                if (gameInfoRes.data.data && gameInfoRes.data.data.length > 0) {
+                                    gameName = gameInfoRes.data.data[0].name;
+                                    placeId = gameInfoRes.data.data[0].rootPlaceId;
+                                }
+                            } catch (e) {
+                                console.error('Failed to fetch game details from universeId');
+                            }
+                        }
                     } else if (presenceData.userPresenceType === 3) {
                         presenceStatus = '💻 متصل في استوديو روبلوكس (Studio)';
                         embedColor = 0xFFA500;
@@ -109,27 +125,44 @@ client.on('messageCreate', async message => {
 
             const selectedSong = randomAudioTracks[Math.floor(Math.random() * randomAudioTracks.length)];
 
-            // صياغة الإمبد مع قراءة الحالة الإجبارية
+            // بناء الإمبد
             const embed = new EmbedBuilder()
                 .setColor(embedColor)
                 .setTitle(`🎯 رادار اللاعب: ${displayName}`)
                 .setImage(avatarUrl)
                 .addFields(
                     { name: '👤 معلومات الحساب', value: `\`${displayName}\` (@${username})`, inline: false },
-                    { name: '📍 حالة الاتصال الإجبارية', value: `**${presenceStatus}**`, inline: false },
-                    { name: '🗺️ الماب الحالي (من الـ API)', value: `\`${gameLocation}\``, inline: false },
-                    { name: '🔍 بحث عميق إضافي', value: 'إذا كانت الحالة تظهر غير متصل بسبب خصوصية الحساب، استخدم الزر أدناه لتفتيش السيرفرات يدوياً 🚀', inline: false }
+                    { name: '📍 حالة الاتصال', value: `**${presenceStatus}**`, inline: false },
+                    { name: '🗺️ اسم الماب الحالي', value: `\`${gameName}\``, inline: false },
+                    { name: '🔍 أدوات التتبع', value: isinGame && placeId ? '✅ تم رصد الماب وجاهز للربط!' : '⚠️ الماب مخفي أو الحساب صادّه الجوين، استخدم الزر أدناه للبحث اليدوي 🚀', inline: false }
                 )
                 .setTimestamp()
-                .setFooter({ text: 'Roblox Forced Presence Tracker' });
+                .setFooter({ text: 'Roblox Smart Tracker Bot' });
 
-            const row = new ActionRowBuilder()
-                .addComponents(
+            // تنظيم الأزرار ديناميكياً بناءً على حالة الماب
+            const row = new ActionRowBuilder();
+
+            if (isinGame && placeId && gameName !== 'غير مرئي (بسبب إعدادات الخصوصية)') {
+                // إذا تم رصد الماب واسمه واضح، نظهر زر الدخول المباشر للماب أو السيرفر
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setLabel(`🎮 فتح ماب (${gameName.substring(0, 20)})`.substring(0, 80))
+                        .setStyle(ButtonStyle.Link)
+                        .setURL(`roblox://placeId=${placeId}`),
                     new ButtonBuilder()
                         .setCustomId(`guess_map_${targetUserId}`)
-                        .setLabel('🔍 بحث يدوي عميق بالماب (مثل Evade)')
+                        .setLabel('🔍 بحث يدوي بـ ماب آخر')
+                        .setStyle(ButtonStyle.Secondary)
+                );
+            } else {
+                // إذا كان الماب مخفي أو الحساب صادّه الجوين، نظهر زر البحث اليدوي فقط كطلبك
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`guess_map_${targetUserId}`)
+                        .setLabel('🔍 بحث يدوي بالماب (مثل Evade)')
                         .setStyle(ButtonStyle.Primary)
                 );
+            }
 
             await sentMessage.edit({ content: `🎵 **معزوفة مختارة:**\n${selectedSong}`, embeds: [embed], components: [row] });
 
@@ -140,7 +173,7 @@ client.on('messageCreate', async message => {
     }
 });
 
-// نافذة Modal للبحث اليدوي في حال الحساب مخفي
+// التعامل مع نافذة الـ Modal للبحث اليدوي
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
     if (interaction.customId.startsWith('guess_map_')) {
@@ -161,7 +194,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// تنفيذ البحث اليدوي في السيرفرات
+// تنفيذ الفحص والتمشيط العميق للسيرفرات
 client.on('interactionCreate', async interaction => {
     if (!interaction.isModalSubmit()) return;
     if (interaction.customId.startsWith('modal_search_')) {
@@ -237,7 +270,7 @@ client.on('interactionCreate', async interaction => {
             if (foundServer) {
                 const embedFound = new EmbedBuilder()
                     .setColor(0x00FF00)
-                    .setTitle(`🎯 تم رصد اللاعب داخل الماب بنجاح!`)
+                    .setTitle(`🎯 تم رصد اللاعب داخل السيرفر بنجاح!`)
                     .setImage(avatarUrl)
                     .addFields(
                         { name: '👤 اللاعب', value: `\`${displayName}\` (@${username})`, inline: false },
