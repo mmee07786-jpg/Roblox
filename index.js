@@ -29,7 +29,7 @@ client.once('ready', async () => {
             return;
         }
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully! (Bulletproof Tracker Active)`);
+        console.log(`[ROBLOX] Logged in successfully! (Universal Random Username Tracker Active)`);
         console.log(`[DISCORD] Bot is ready as ${client.user.tag}`);
     } catch (err) {
         console.error('Error during startup:', err);
@@ -46,34 +46,46 @@ client.on('messageCreate', async message => {
         const targetUsername = args[1];
 
         if (!targetUsername) {
-            return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m OblivionFromTsb`');
+            return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m Cfyjctjfxtyfyj` أو `!m OblivionFromTsb`');
         }
 
-        const sentMessage = await message.reply(`⚡ **[جاري فحص رادار اللاعب]** يتم معالجة طلب اللاعب **${targetUsername}** بدقة وسرعة...`);
+        const sentMessage = await message.reply(`⚡ **[جاري البحث الشامل]** يتم فحص اليوزر العشوائي **${targetUsername}** بدقة...`);
 
         try {
-            // 1. جلب الـ User ID بأمان تام مع دعم البحث الاحتياطي
+            // جلب الـ User ID للأسماء العشوائية والحقيقية عبر الـ API المباشر بدون أخطاء
             let targetUserId = null;
             try {
-                targetUserId = await noblox.getIdFromUsername(targetUsername);
-            } catch (e) {
-                // محاولة بديلة عبر الـ API مباشرة إذا فشلت دالة noblox
+                const userLookup = await axios.post(`https://users.roblox.com/v1/usernames/users`, {
+                    usernames: [targetUsername],
+                    excludeBannedUsers: false
+                }, { timeout: 4000 });
+
+                if (userLookup.data.data && userLookup.data.data.length > 0) {
+                    targetUserId = userLookup.data.data[0].id;
+                }
+            } catch (errApi) {
+                console.error('API Lookup Error:', errApi.message);
+            }
+
+            // محاولة احتياطية ثانية إذا فشلت الأولى (البحث بالبحث النصي الحر)
+            if (!targetUserId) {
                 try {
-                    const userLookup = await axios.post(`https://users.roblox.com/v1/usernames/users`, {
-                        usernames: [targetUsername],
-                        excludeBannedUsers: true
-                    });
-                    if (userLookup.data.data && userLookup.data.data.length > 0) {
-                        targetUserId = userLookup.data.data[0].id;
+                    const searchRes = await axios.get(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(targetUsername)}&limit=10`, { timeout: 4000 });
+                    const users = searchRes.data.data || [];
+                    const matchedUser = users.find(u => u.name.toLowerCase() === targetUsername.toLowerCase() || (u.displayName && u.displayName.toLowerCase() === targetUsername.toLowerCase()));
+                    if (matchedUser) {
+                        targetUserId = matchedUser.id;
+                    } else if (users.length > 0) {
+                        targetUserId = users[0].id; // أول نتيجة تقريبية مطابقة
                     }
-                } catch (err2) {}
+                } catch (errSearch) {}
             }
 
             if (!targetUserId) {
-                return sentMessage.edit(`❌ عذراً، لم يتم العثور على اللاعب **${targetUsername}** في روبلوكس نهائياً!`);
+                return sentMessage.edit(`❌ عذراً، لم يتم العثور على أي حساب بهذا الاسم العشوائي: **"${targetUsername}"** في روبلوكس!`);
             }
 
-            // 2. جلب معلومات الحساب الأساسية
+            // جلب معلومات الحساب
             let username = targetUsername;
             let displayName = targetUsername;
             try {
@@ -82,7 +94,7 @@ client.on('messageCreate', async message => {
                 displayName = userInfo.displayName || username;
             } catch (e) {}
 
-            // 3. فحص الحالة (Presence) بأمان تام بدون أن يسبب انهيار
+            // فحص الحالة (Presence)
             let presenceStatus = 'غير متصل أو الحساب مخفي ❌';
             let gameName = 'غير مرئي (بسبب إعدادات الخصوصية)';
             let placeId = null;
@@ -128,7 +140,7 @@ client.on('messageCreate', async message => {
                 }
             } catch (errPresence) {}
 
-            // 4. جلب صورة السكن (Avatar Headshot) بطريقة مضمونة 100%
+            // جلب صورة السكن
             let avatarUrl = `https://www.roblox.com/headshot-thumbnail/image?userId=${targetUserId}&width=420&height=420&format=png`;
             try {
                 const headshots = await noblox.getPlayerThumbnail(targetUserId, '420x420', 'png', false, 'headshot');
@@ -139,7 +151,6 @@ client.on('messageCreate', async message => {
 
             const selectedSong = randomAudioTracks[Math.floor(Math.random() * randomAudioTracks.length)];
 
-            // بناء الإمبد النهائي
             const embed = new EmbedBuilder()
                 .setColor(embedColor)
                 .setTitle(`🎯 رادار اللاعب: ${displayName}`)
@@ -151,7 +162,7 @@ client.on('messageCreate', async message => {
                     { name: '🔍 أدوات التتبع', value: isinGame && placeId ? '✅ تم رصد الماب وجاهز للربط!' : '⚠️ الماب مخفي أو الحساب صادّه الجوين، استخدم الزر أدناه للبحث اليدوي 🚀', inline: false }
                 )
                 .setTimestamp()
-                .setFooter({ text: 'Roblox Bulletproof Tracker Bot' });
+                .setFooter({ text: 'Roblox Universal Tracker Bot' });
 
             const row = new ActionRowBuilder();
 
@@ -179,7 +190,7 @@ client.on('messageCreate', async message => {
 
         } catch (error) {
             console.error('Fatal Tracker Error:', error);
-            await sentMessage.edit('❌ حدث خطأ غير متوقع أثناء معالجة البيانات، يجدر المحاولة مرة أخرى.');
+            await sentMessage.edit('❌ حدث خطأ غير متوقع أثناء معالجة اليوزر العشوائي.');
         }
     }
 });
@@ -205,7 +216,7 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// تنفيذ الفحص والتمشيط العميق للسيرفرات بأمان
+// تنفيذ الفحص والتمشيط العميق للسيرفرات
 client.on('interactionCreate', async interaction => {
     if (!interaction.isModalSubmit()) return;
     if (interaction.customId.startsWith('modal_search_')) {
@@ -314,7 +325,7 @@ client.on('interactionCreate', async interaction => {
                     )
                     .setTimestamp();
 
-                const rowButton = new ActionRowBuilder()
+                const rowButton = new ActionRowButton()
                     .addComponents(
                         new ButtonBuilder()
                             .setLabel('فتح الماب')
