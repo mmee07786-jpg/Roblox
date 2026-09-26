@@ -30,16 +30,14 @@ client.once('ready', async () => {
     }
 });
 
-// استقبال الرسائل والأوامر النصية
 client.on('messageCreate', async message => {
     if (message.author.bot || !message.content.startsWith('!')) return;
 
     const args = message.content.trim().split(/ +/);
-    const command = args[0].toLowerCase(); // الأمر الأساسي
+    const command = args[0].toLowerCase();
 
-    // التحقق من الأمر أن يكون !roblox فقط
     if (command === '!roblox') {
-        const targetUsername = args[1]; // اليوزر المكتوب بعد الأمر
+        const targetUsername = args[1];
 
         if (!targetUsername) {
             return message.reply('❌ يرجى كتابة يوزر اللاعب بعد الأمر!\nمثال: `!roblox mfrr07786`');
@@ -48,7 +46,6 @@ client.on('messageCreate', async message => {
         const sentMessage = await message.reply(`🔍 جاري البحث عن اللاعب **${targetUsername}** في روبلوكس...`);
 
         try {
-            // جلب آيدي اللاعب من اليوزر
             let targetUserId;
             try {
                 targetUserId = await noblox.getIdFromUsername(targetUsername);
@@ -56,38 +53,38 @@ client.on('messageCreate', async message => {
                 return sentMessage.edit(`❌ لم يتم العثور على اللاعب **${targetUsername}** في روبلوكس، تأكد من صحة اليوزر!`);
             }
 
-            // جلب صورة السكن (Avatar Headshot)
+            const userInfo = await noblox.getPlayerInfo(targetUserId);
+            const username = userInfo.username || targetUsername;
+            const displayName = userInfo.displayName || username;
+
             const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
             const avatarUrl = thumbResponse.data.data[0]?.imageUrl || '';
 
-            // فحص حالة اللاعب من روبلوكس بريزنس
             const userPresence = await axios.post(`https://presence.roblox.com/v1/presence/users`, {
                 userIds: [targetUserId]
             });
 
             const presenceData = userPresence.data.presence[0];
             const presenceType = presenceData.userPresenceType; 
-            // 0: Offline, 1: Online, 2: In Game, 3: In Studio
 
-            // إذا اللاعب مو داخل لعبة
+            // إذا الشخص مو متصل أو مو داخل لعبة
             if (presenceType !== 2) {
-                const statusInfo = getStatusDetails(presenceType);
-                
                 const embedOffline = new EmbedBuilder()
-                    .setColor(statusInfo.color)
-                    .setTitle(`🎮 حالة اللاعب: ${targetUsername}`)
+                    .setColor(0xFF0000)
+                    .setTitle(`🎮 معلومات اللاعب: ${displayName}`)
                     .setThumbnail(avatarUrl)
                     .addFields(
-                        { name: '📍 الحالة الحالية', value: `\`${statusInfo.text}\``, inline: false },
-                        { name: '⚠️ تنبيه', value: 'هذا اللاعب غير موجود في أي ماب حالياً.', inline: false }
+                        { name: '👤 اسم الحساب (Username)', value: `\`${username}\``, inline: true },
+                        { name: '🏷️ اسم العرض (Display Name)', value: `\`${displayName}\``, inline: true },
+                        { name: '📍 الحالة', value: 'غير متصل ❌', inline: false }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Roblox Server Joiner Bot' });
+                    .setFooter({ text: 'Roblox Status Bot' });
 
                 return sentMessage.edit({ content: '', embeds: [embedOffline] });
             }
 
-            // إذا كان داخل لعبة، نجيب بيانات الماب والسيرفر
+            // إذا كان متصل وداخل الماب
             const gameId = presenceData.gameId; 
             const placeId = presenceData.placeId; 
             const universeId = presenceData.universeId;
@@ -97,20 +94,23 @@ client.on('messageCreate', async message => {
 
             const embed = new EmbedBuilder()
                 .setColor(0x00FF00)
-                .setTitle(`🎮 حالة اللاعب: ${targetUsername}`)
+                .setTitle(`🎮 معلومات اللاعب: ${displayName}`)
                 .setThumbnail(avatarUrl)
                 .addFields(
-                    { name: '📍 الماب الحالي', value: `\`${gameName}\``, inline: false },
-                    { name: '🟢 الحالة', value: 'داخل اللعبة يلعب الان', inline: true },
-                    { name: '🆔 Job ID', value: `\`${gameId}\``, inline: true }
+                    { name: '👤 اسم الحساب (Username)', value: `\`${username}\``, inline: true },
+                    { name: '🏷️ اسم العرض (Display Name)', value: `\`${displayName}\``, inline: true },
+                    { name: '📍 الحالة', value: 'متصل ✅', inline: false },
+                    { name: '🗺️ الماب الحالي', value: `\`${gameName}\``, inline: false },
+                    { name: '🆔 Job ID', value: `\`${gameId}\``, inline: false }
                 )
                 .setTimestamp()
-                .setFooter({ text: 'Roblox Server Joiner Bot' });
+                .setFooter({ text: 'Roblox Status Bot' });
 
+            // زر Join بنفس طراز زر الرايدات المباشر للسيرفر
             const row = new ActionRowBuilder()
                 .addComponents(
                     new ButtonBuilder()
-                        .setLabel('Join Game')
+                        .setLabel('Join Game Server')
                         .setStyle(ButtonStyle.Link)
                         .setURL(`roblox://placeId=${placeId}&linkCode=${gameId}`)
                 );
@@ -123,15 +123,6 @@ client.on('messageCreate', async message => {
         }
     }
 });
-
-function getStatusDetails(type) {
-    switch (type) {
-        case 0: return { text: '🔴 غير متصل (Offline)', color: 0xFF0000 };
-        case 1: return { text: '🟡 متصل / صافن بالقائمة الرئيسية (Online)', color: 0xFFA500 };
-        case 3: return { text: '🔵 داخل استوديو روبلوكس (Studio)', color: 0x0000FF };
-        default: return { text: '⚪ غير معروف (Unknown)', color: 0x808080 };
-    }
-}
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_TOKEN;
 if (!DISCORD_BOT_TOKEN) {
