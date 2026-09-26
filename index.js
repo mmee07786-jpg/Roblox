@@ -13,7 +13,7 @@ const client = new Client({
     ]
 });
 
-const COOKIE = process.env.ROBLOX_COOKIE;
+const COOKIE = process.env.ROBLOSECURITY || process.env.ROBLOX_COOKIE;
 
 const randomAudioTracks = [
     'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
@@ -29,7 +29,7 @@ client.once('ready', async () => {
             return;
         }
         await noblox.setCookie(COOKIE);
-        console.log(`[ROBLOX] Logged in successfully! (Omni-Username Tracker Active)`);
+        console.log(`[ROBLOX] Logged in successfully! (Direct Join Tracker Active)`);
         console.log(`[DISCORD] Bot is ready as ${client.user.tag}`);
     } catch (err) {
         console.error('Error during startup:', err);
@@ -49,50 +49,55 @@ client.on('messageCreate', async message => {
             return message.reply('❌ الاستخدام الصحيح:\n`!m اليوزر`\nمثال: `!m HcahfigMcihal` أو `!m DOOD_07786`');
         }
 
-        const sentMessage = await message.reply(`⚡ **[جاري البحث الشامل]** يتم فحص اليوزر **${targetUsername}** بكل قوة...`);
+        const sentMessage = await message.reply(`⚡ **[جاري الرصد المباشر]** يتم فحص اليوزر **${targetUsername}** واستخراج رابط السيرفر...`);
 
         try {
             let targetUserId = null;
             let username = targetUsername;
             let displayName = targetUsername;
 
-            // 1. محاولة البحث المباشر بالـ Usernames API
+            // 1. الطبقة الأولى: البحث الشامل بالـ Users Search (للبريمو والعشوائي)
             try {
-                const userLookup = await axios.post(`https://users.roblox.com/v1/usernames/users`, {
-                    usernames: [targetUsername],
-                    excludeBannedUsers: false
-                }, { timeout: 3000 });
-
-                if (userLookup.data.data && userLookup.data.data.length > 0) {
-                    targetUserId = userLookup.data.data[0].id;
-                    username = userLookup.data.data[0].name || targetUsername;
-                    displayName = userLookup.data.data[0].displayName || username;
-                }
-            } catch (e) {}
-
-            // 2. إذا لم يُعثر عليه، نستخدم نظام البحث النصي الذكي (يقبل الحروف العشوائية الكبيرة والصغيرة)
-            if (!targetUserId) {
-                try {
-                    const searchRes = await axios.get(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(targetUsername)}&limit=10`, { timeout: 3500 });
-                    const users = searchRes.data.data || [];
-                    
-                    // بحث دقيق مطابقة تامة بغض النظر عن الحروف الكبيرة والصغيرة
-                    const exactMatch = users.find(u => u.name.toLowerCase() === targetUsername.toLowerCase() || (u.displayName && u.displayName.toLowerCase() === targetUsername.toLowerCase()));
-                    
-                    if (exactMatch) {
-                        targetUserId = exactMatch.id;
-                        username = exactMatch.name;
-                        displayName = exactMatch.displayName || exactMatch.name;
-                    } else if (users.length > 0) {
-                        // أخذ أول نتيجة قريبة جداً إذا لم توجد مطابقة تامة حرفياً
+                const searchRes = await axios.get(`https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(targetUsername)}&limit=30`, { timeout: 4000 });
+                const users = searchRes.data.data || [];
+                
+                const exactMatch = users.find(u => u.name.toLowerCase() === targetUsername.toLowerCase() || (u.displayName && u.displayName.toLowerCase() === targetUsername.toLowerCase()));
+                
+                if (exactMatch) {
+                    targetUserId = exactMatch.id;
+                    username = exactMatch.name;
+                    displayName = exactMatch.displayName || exactMatch.name;
+                } else if (users.length > 0) {
+                    const closeMatch = users.find(u => u.name.toLowerCase().startsWith(targetUsername.toLowerCase()));
+                    if (closeMatch) {
+                        targetUserId = closeMatch.id;
+                        username = closeMatch.name;
+                        displayName = closeMatch.displayName || closeMatch.name;
+                    } else {
                         targetUserId = users[0].id;
                         username = users[0].name;
                         displayName = users[0].displayName || users[0].name;
                     }
+                }
+            } catch (e) {}
+
+            // 2. الطبقة الثانية: الـ POST Request
+            if (!targetUserId) {
+                try {
+                    const userLookup = await axios.post(`https://users.roblox.com/v1/usernames/users`, {
+                        usernames: [targetUsername],
+                        excludeBannedUsers: false
+                    }, { timeout: 4000 });
+
+                    if (userLookup.data.data && userLookup.data.data.length > 0) {
+                        targetUserId = userLookup.data.data[0].id;
+                        username = userLookup.data.data[0].name || targetUsername;
+                        displayName = userLookup.data.data[0].displayName || username;
+                    }
                 } catch (e) {}
             }
 
-            // 3. محاولة أخيره عبر دالة noblox الاحتياطية
+            // 3. الطبقة الثالثة: noblox
             if (!targetUserId) {
                 try {
                     targetUserId = await noblox.getIdFromUsername(targetUsername);
@@ -100,23 +105,23 @@ client.on('messageCreate', async message => {
             }
 
             if (!targetUserId) {
-                return sentMessage.edit(`❌ عذراً، لم يتم العثور نهائياً على أي حساب بهذا الاسم: **"${targetUsername}"** في روبلوكس! تأكد من كتابة اليوزر بشكل صحيح.`);
+                return sentMessage.edit(`❌ عذراً، لم يتم العثور نهائياً على الحساب **"${targetUsername}"** في روبلوكس!`);
             }
 
-            // جلب معلومات إضافية للتأكد من صحة الاسم والـ Display Name
             try {
-                const basicInfoRes = await axios.get(`https://users.roblox.com/v1/users/${targetUserId}`, { timeout: 2000 });
+                const basicInfoRes = await axios.get(`https://users.roblox.com/v1/users/${targetUserId}`, { timeout: 3000 });
                 if (basicInfoRes.data) {
                     username = basicInfoRes.data.name || username;
                     displayName = basicInfoRes.data.displayName || displayName;
                 }
             } catch (e) {}
 
-            // 4. فحص الحالة (Presence)
+            // 4. فحص الحالة واستخراج بيانات السيرفر الحقيقي (JobId)
             let presenceStatus = 'غير متصل أو الحساب مخفي ❌';
             let gameName = 'غير مرئي (بسبب إعدادات الخصوصية)';
             let placeId = null;
             let universeId = null;
+            let gameId = null; // الـ JobId الخاص بالسيرفر
             let embedColor = 0xFF0000;
             let isinGame = false;
 
@@ -142,6 +147,8 @@ client.on('messageCreate', async message => {
                         embedColor = 0x00FF00;
                         
                         universeId = presenceData.universeId;
+                        gameId = presenceData.gameId; // هذا هو الـ JobId للسيرفر الحالي اللي اللاعب بداخلة
+
                         if (universeId) {
                             try {
                                 const gameInfoRes = await axios.get(`https://games.roblox.com/v1/games?universeIds=${universeId}`, { timeout: 2000 });
@@ -158,9 +165,7 @@ client.on('messageCreate', async message => {
                 }
             } catch (e) {}
 
-            // 5. رابط صورة السكن المباشر المضمون
             let avatarUrl = `https://www.roblox.com/headshot-thumbnail/image?userId=${targetUserId}&width=420&height=420&format=png`;
-
             const selectedSong = randomAudioTracks[Math.floor(Math.random() * randomAudioTracks.length)];
 
             const embed = new EmbedBuilder()
@@ -171,25 +176,39 @@ client.on('messageCreate', async message => {
                     { name: '👤 معلومات الحساب', value: `\`${displayName}\` (@${username})`, inline: false },
                     { name: '📍 حالة الاتصال', value: `**${presenceStatus}**`, inline: false },
                     { name: '🗺️ اسم الماب الحالي', value: `\`${gameName}\``, inline: false },
-                    { name: '🔍 أدوات التتبع', value: isinGame && placeId ? '✅ تم رصد الماب وجاهز للربط!' : '⚠️ الماب مخفي أو الحساب صادّه الجوين، استخدم الزر أدناه للبحث اليدوي 🚀', inline: false }
+                    { name: '🔗 رابط الدخول', value: isinGame && placeId && gameId ? '✅ **رابط السيرفر جاهز، اضغط Join أدناه!**' : '⚠️ الماب مخفي أو الحساب لا يسمح بالانضمام، استخدم زر البحث اليدوي 🔍', inline: false }
                 )
                 .setTimestamp()
-                .setFooter({ text: 'Roblox Omni-Username Tracker Bot' });
+                .setFooter({ text: 'Roblox Direct Join Tracker' });
 
             const row = new ActionRowBuilder();
 
-            if (isinGame && placeId && gameName !== 'غير مرئي (بسبب إعدادات الخصوصية)') {
+            // إذا كان داخل ماب وعنده GameId (JobId) حقيقي، نحط زر Join مباشر للسيرفر
+            if (isinGame && placeId && gameId && gameName !== 'غير مرئي (بسبب إعدادات الخصوصية)') {
                 row.addComponents(
                     new ButtonBuilder()
-                        .setLabel(`🎮 فتح ماب (${gameName.substring(0, 20)})`.substring(0, 80))
+                        .setLabel('🚀 Join (دخول السيرفر)')
+                        .setStyle(ButtonStyle.Link)
+                        .setURL(`roblox://placeId=${placeId}&linkCode=${gameId}`),
+                    new ButtonBuilder()
+                        .setCustomId(`guess_map_${targetUserId}`)
+                        .setLabel('🔍 بحث يدوي بماب آخر')
+                        .setStyle(ButtonStyle.Secondary)
+                );
+            } else if (isinGame && placeId) {
+                // إذا متصل بس ماب بدون JobId مباشر
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setLabel('🎮 Join (فتح الماب)')
                         .setStyle(ButtonStyle.Link)
                         .setURL(`roblox://placeId=${placeId}`),
                     new ButtonBuilder()
                         .setCustomId(`guess_map_${targetUserId}`)
-                        .setLabel('🔍 بحث يدوي بـ ماب آخر')
+                        .setLabel('🔍 بحث يدوي بماب آخر')
                         .setStyle(ButtonStyle.Secondary)
                 );
             } else {
+                // إذا مو داخل ماب، نحط زر بحث يدوي
                 row.addComponents(
                     new ButtonBuilder()
                         .setCustomId(`guess_map_${targetUserId}`)
@@ -201,8 +220,8 @@ client.on('messageCreate', async message => {
             await sentMessage.edit({ content: `🎵 **معزوفة مختارة:**\n${selectedSong}`, embeds: [embed], components: [row] });
 
         } catch (error) {
-            console.error('Fatal Omni Error:', error);
-            await sentMessage.edit(`❌ عذراً فهد، حدث خطأ غير متوقع أثناء معالجة هذا اليوزر، يرجى المحاولة مرة أخرى.`);
+            console.error('Fatal Direct Join Error:', error);
+            await sentMessage.edit(`❌ عذراً فهد، حدث خطأ أثناء جلب بيانات هذا الحساب.`);
         }
     }
 });
@@ -228,14 +247,14 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// تنفيذ الفحص والتمشيط العميق للسيرفرات
+// تنفيذ الفحص والتمشيط العميق للسيرفرات وإعطاء زر Join مباشر
 client.on('interactionCreate', async interaction => {
     if (!interaction.isModalSubmit()) return;
     if (interaction.customId.startsWith('modal_search_')) {
         const targetUserId = interaction.customId.split('_')[2];
         const mapQuery = interaction.fields.getTextInputValue('map_name_input');
 
-        await interaction.reply({ content: `⚡ **[جاري تمشيط السيرفرات]** يتم فحص سيرفرات ماب **"${mapQuery}"**...`, ephemeral: true });
+        await interaction.reply({ content: `⚡ **[جاري تمشيط السيرفرات]** يتم فحص سيرفرات ماب **"${mapQuery}"** لإيجاد السيرفر ودك Join عليه...`, ephemeral: true });
 
         try {
             let placeId = null;
@@ -307,7 +326,7 @@ client.on('interactionCreate', async interaction => {
                     .setImage(avatarUrl)
                     .addFields(
                         { name: '👤 اللاعب', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '📍 الحالة', value: '🟢 **متصل داخل هذا السيرفر الآن!**', inline: false },
+                        { name: '📍 الحالة', value: '🟢 **متصل داخل السيرفر الآن وجاهز للانضمام!**', inline: false },
                         { name: '🗺️ الماب', value: `**${gameName}**`, inline: false },
                         { name: '📊 نتيجة الفحص', value: `تم فحصه عبر \`${scannedServersCount}\` سيرفر وإيجاده بنجاح 🚀`, inline: false }
                     )
@@ -316,12 +335,12 @@ client.on('interactionCreate', async interaction => {
                 const rowButton = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
-                            .setLabel('الدخول إلى سيرفر اللاعب')
+                            .setLabel('🚀 Join (الدخول إلى سيرفر اللاعب مباشرة)')
                             .setStyle(ButtonStyle.Link)
                             .setURL(`roblox://placeId=${placeId}&linkCode=${foundServer.id}`)
                     );
 
-                await interaction.editReply({ content: `✅ **تم إيجاد اللاعب بنجاح!**`, embeds: [embedFound], components: [rowButton] });
+                await interaction.editReply({ content: `✅ **تم إيجاد السيرفر! اضغط Join للدخول فوراً:**`, embeds: [embedFound], components: [rowButton] });
             } else {
                 const embedNotFound = new EmbedBuilder()
                     .setColor(0xFF0000)
@@ -337,7 +356,7 @@ client.on('interactionCreate', async interaction => {
                 const rowButton = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
-                            .setLabel('فتح الماب')
+                            .setLabel('🎮 فتح الماب بشكل عام')
                             .setStyle(ButtonStyle.Link)
                             .setURL(`roblox://placeId=${placeId}`)
                     );
