@@ -36,7 +36,6 @@ client.on('messageCreate', async message => {
     const command = args[0].toLowerCase();
 
     if (command === '!roblox') {
-        // الصيغة: !roblox اليوزر اسم_الماب (مثال: !roblox DOOD_07786 TSB)
         const targetUsername = args[1];
         const mapQuery = args.slice(2).join(' ');
 
@@ -52,52 +51,78 @@ client.on('messageCreate', async message => {
             try {
                 targetUserId = await noblox.getIdFromUsername(targetUsername);
             } catch (e) {
-                return sentMessage.edit(`❌ عذراً، لم يتم العثور على اللاعب **${targetUsername}**!`);
+                return sentMessage.edit(`❌ عذراً، لم يتم العثور على اللاعب **${targetUsername}** في روبلوكس!`);
             }
 
-            // 2. البحث عن الماب بالاسم (Keyword Search)
-            let gameData = null;
+            // 2. البحث عن الماب باستخدام نظام روبلوكس الحديث واختيار أول نتيجة تلقائياً
+            let universeId = null;
+            let placeId = null;
+            let gameName = mapQuery;
+
             try {
-                const searchRes = await axios.get(`https://games.roblox.com/v1/games/list?keyword=${encodeURIComponent(mapQuery)}&maxRows=1`);
-                const games = searchRes.data.data || [];
-                if (games.length > 0) {
-                    gameData = games[0];
+                const searchRes = await axios.get(`https://apis.roblox.com/search-api/omni-search?searchQuery=${encodeURIComponent(mapQuery)}&sessionId=12345678-1234-1234-1234-123456789abc`);
+                const contents = searchRes.data.combinedRows || [];
+                
+                let foundGame = null;
+                for (const row of contents) {
+                    if (row.contents && row.contents.length > 0) {
+                        const match = row.contents.find(item => item.universeId || item.rootPlaceId);
+                        if (match) {
+                            foundGame = match;
+                            break;
+                        }
+                    }
+                }
+
+                if (foundGame) {
+                    universeId = foundGame.universeId;
+                    placeId = foundGame.rootPlaceId || foundGame.placeId;
+                    gameName = foundGame.name || mapQuery;
                 }
             } catch (err) {
-                console.error('Error searching game:', err);
+                console.error('Search API Error:', err);
             }
 
-            if (!gameData) {
-                return sentMessage.edit(`❌ لم يتم العثور على أي ماب بهذا الاسم: **"${mapQuery}"**`);
+            // لو ما جاب الـ Place ID من البحث السريع، نجرب نلتقطه عبر طريقة احتياطية أو نوقف
+            if (!universeId || !placeId) {
+                return sentMessage.edit(`❌ لم يتم العثور على أي ماب يطابق البحث: **"${mapQuery}"**`);
             }
 
-            const universeId = gameData.id;
-            const placeId = gameData.rootPlaceId;
-            const gameName = gameData.name;
-            const playerCount = gameData.playing || 0;
-            const visits = gameData.visits || 0;
-            const votesUp = gameData.upVotes || 0;
-            const votesDown = gameData.downVotes || 0;
-            
-            // حساب نسبة الإعجاب بالمئة
-            const totalVotes = votesUp + votesDown;
-            const rating = totalVotes > 0 ? Math.round((votesUp / totalVotes) * 100) : 0;
+            // 3. جلب إحصائيات الماب الحقيقية (لاعبين، إعجابات، زيارات)
+            let playerCount = 0;
+            let visits = 0;
+            let rating = 0;
+            let votesUp = 0;
 
-            // 3. جلب صورة أيقونة الماب وصورة البانر
+            try {
+                const gameDetails = await axios.get(`https://games.roblox.com/v1/games?universeIds=${universeId}`);
+                const gData = gameDetails.data.data[0];
+                if (gData) {
+                    gameName = gData.name || gameName;
+                    playerCount = gData.playing || 0;
+                    visits = gData.visits || 0;
+                    votesUp = gData.upVotes || 0;
+                    const votesDown = gData.downVotes || 0;
+                    const totalVotes = votesUp + votesDown;
+                    rating = totalVotes > 0 ? Math.round((votesUp / totalVotes) * 100) : 0;
+                }
+            } catch (e) {}
+
+            // 4. جلب صورة أيقونة الماب
             let mapThumbnail = '';
             try {
                 const thumbRes = await axios.get(`https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeId}&size=512x512&format=Png&isCircular=false`);
                 mapThumbnail = thumbRes.data.data[0]?.imageUrl || '';
             } catch (e) {}
 
-            await sentMessage.edit(`🗺️ تم العثور على الماب: **${gameName}**\n👥 اللاعبون الآن: **${playerCount}** | 👍 الإعجابات: **${rating}%**\n🔍 جاري بدء فحص السيرفرات للبحث عن **${targetUsername}**...`);
+            await sentMessage.edit(`🗺️ تم اختيار أول ماب: **${gameName}**\n👥 اللاعبون الآن: **${playerCount}** | 👍 الإعجابات: **${rating}%**\n🔍 جاري بدء فحص السيرفرات للبحث عن اللاعب **${targetUsername}**...`);
 
-            // 4. البحث العميق في سيرفرات الماب
+            // 5. البحث العميق في سيرفرات الماب المختار
             let scannedServersCount = 0;
             let foundServer = null;
             let cursor = '';
             let attempts = 0;
-            const maxAttempts = 8; // فحص حتى 800 سيرفر
+            const maxAttempts = 8; // يفحص لغاية 800 سيرفر
 
             while (attempts < maxAttempts) {
                 attempts++;
@@ -125,7 +150,7 @@ client.on('messageCreate', async message => {
                 }
             }
 
-            // 5. جلب صورة سكن اللاعب
+            // 6. جلب صورة سكن اللاعب
             let avatarUrl = '';
             try {
                 const thumbResponse = await axios.get(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${targetUserId}&size=420x420&format=Png&isCircular=false`);
@@ -136,7 +161,7 @@ client.on('messageCreate', async message => {
             const username = userInfo.username || targetUsername;
             const displayName = userInfo.displayName || username;
 
-            // بناء الإمبد والنتيجة النهائية
+            // إرسال النتيجة النهائية
             if (foundServer) {
                 const embed = new EmbedBuilder()
                     .setColor(0x00FF00)
@@ -145,18 +170,18 @@ client.on('messageCreate', async message => {
                     .setImage(avatarUrl)
                     .addFields(
                         { name: '👤 اللاعب', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '🗺️ اسم الماب', value: `**${gameName}**`, inline: false },
-                        { name: '📊 إحصائيات الماب', value: `🟢 المتواجدون: \`${playerCount}\`\n👍 نسبة الإعجاب: \`${rating}%\` (\`${votesUp}\` إعجاب)\n👁️ الزيارات: \`${visits.toLocaleString()}\``, inline: false },
+                        { name: '🗺️ اسم الماب المختار', value: `**${gameName}**`, inline: false },
+                        { name: '📊 إحصائيات الماب', value: `🟢 المتواجدون: \`${playerCount}\`\n👍 نسبة الإعجاب: \`${rating}%\`\n👁️ الزيارات: \`${visits.toLocaleString()}\``, inline: false },
                         { name: '🔍 السيرفرات المفحوصة', value: `\`${scannedServersCount} سيرفر\``, inline: true },
                         { name: '📍 الحالة', value: 'متصل داخل سيرفر ✅', inline: true }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Roblox Smart Map & Player Scanner' });
+                    .setFooter({ text: 'Roblox Omni-Search & Player Scanner' });
 
                 const row = new ActionRowBuilder()
                     .addComponents(
                         new ButtonBuilder()
-                            .setLabel('Join Game')
+                            .setLabel('Join Game Server')
                             .setStyle(ButtonStyle.Link)
                             .setURL(`roblox://placeId=${placeId}&linkCode=${foundServer.id}`)
                     );
@@ -169,13 +194,13 @@ client.on('messageCreate', async message => {
                     .setThumbnail(mapThumbnail)
                     .addFields(
                         { name: '👤 اللاعب', value: `\`${displayName}\` (@${username})`, inline: false },
-                        { name: '🗺️ اسم الماب', value: `**${gameName}**`, inline: false },
+                        { name: '🗺️ اسم الماب المختار', value: `**${gameName}**`, inline: false },
                         { name: '📊 إحصائيات الماب', value: `🟢 المتواجدون: \`${playerCount}\`\n👍 نسبة الإعجاب: \`${rating}%\``, inline: false },
                         { name: '🔍 السيرفرات المفحوصة', value: `\`${scannedServersCount} سيرفر\``, inline: true },
                         { name: '📍 الحالة', value: 'لم يتم العثور عليه في سيرفرات هذا الماب ❌', inline: true }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'Roblox Smart Map & Player Scanner' });
+                    .setFooter({ text: 'Roblox Omni-Search & Player Scanner' });
 
                 await sentMessage.edit({ content: '', embeds: [embedNotFound], components: [] });
             }
